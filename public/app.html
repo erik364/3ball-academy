@@ -634,9 +634,6 @@ tbody td { padding: 10px 14px; color: var(--text); vertical-align: middle; }
       <span style="font-size:12px;color:var(--text-secondary);">Don't have an account? </span>
       <span style="font-size:12px;color:var(--orange);cursor:pointer;font-weight:500;" onclick="showRegisterModal()">Register parent account</span>
     </div>
-    <div style="text-align:center;margin-top:8px;">
-      <span style="font-size:11px;color:var(--gray-mid);">Demo: parent@3ball.org / parent &mdash; sarah@3ball.org / coach2 &mdash; coach@3ball.org / coach</span>
-    </div>
     </div><!-- /body -->
   </div><!-- /card -->
 </div>
@@ -1837,45 +1834,43 @@ function doLogin() {
     return;
   }
 
-  if (sb) {
-    sb.auth.signInWithPassword({ email: email, password: pass }).then(function(result) {
-      if (!result.error && result.data && result.data.user) {
-        var resolved = resolveSupabaseUser(result.data.user);
-        if (!resolved) {
-          err.textContent = 'Account exists but no role is assigned. Contact your admin.';
-          sb.auth.signOut();
-          return;
-        }
-        if (resolved.role === 'admin' || resolved.role === 'coach') {
-          state.currentCoach = resolved.coach;
-          state.currentUser = {
-            role: resolved.role,
-            name: resolved.coach.first + ' ' + resolved.coach.last,
-            initials: ((resolved.coach.first[0] || '?') + (resolved.coach.last[0] || '')).toUpperCase()
-          };
-          enterApp(resolved.role);
-          return;
-        }
-        if (resolved.role === 'parent') {
-          state.currentParent = resolved.parent;
-          state.currentUser = {
-            role: 'parent',
-            name: resolved.parent.first + ' ' + resolved.parent.last,
-            initials: ((resolved.parent.first[0] || '?') + (resolved.parent.last[0] || '')).toUpperCase()
-          };
-          enterApp('parent');
-          return;
-        }
-      }
-      // Supabase rejected — try demo accounts
-      tryDemoLogin(email, pass, err);
-    }).catch(function(e) {
-      console.warn('Supabase auth threw, falling back to demo:', e);
-      tryDemoLogin(email, pass, err);
-    });
-  } else {
-    tryDemoLogin(email, pass, err);
+  if (!sb) {
+    err.textContent = 'Auth is not configured. Please contact support.';
+    return;
   }
+
+  sb.auth.signInWithPassword({ email: email, password: pass }).then(function(result) {
+    if (result.error || !result.data || !result.data.user) {
+      err.textContent = 'Invalid email or password.';
+      return;
+    }
+    var resolved = resolveSupabaseUser(result.data.user);
+    if (!resolved) {
+      err.textContent = 'Account exists but no role is assigned. Contact your admin.';
+      sb.auth.signOut();
+      return;
+    }
+    if (resolved.role === 'admin' || resolved.role === 'coach') {
+      state.currentCoach = resolved.coach;
+      state.currentUser = {
+        role: resolved.role,
+        name: resolved.coach.first + ' ' + resolved.coach.last,
+        initials: ((resolved.coach.first[0] || '?') + (resolved.coach.last[0] || '')).toUpperCase()
+      };
+      enterApp(resolved.role);
+    } else if (resolved.role === 'parent') {
+      state.currentParent = resolved.parent;
+      state.currentUser = {
+        role: 'parent',
+        name: resolved.parent.first + ' ' + resolved.parent.last,
+        initials: ((resolved.parent.first[0] || '?') + (resolved.parent.last[0] || '')).toUpperCase()
+      };
+      enterApp('parent');
+    }
+  }).catch(function(e) {
+    console.error('Auth error:', e);
+    err.textContent = 'Sign in failed. Please try again.';
+  });
 }
 function enterApp(role) {
   // Hide login, show app
