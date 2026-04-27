@@ -1877,7 +1877,31 @@ function doLogin() {
     tryDemoLogin(email, pass, err);
   }
 }
+function enterApp(role) {
+  // Hide login, show app
+  document.getElementById('login-page').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
 
+  // Pick the starting page for each role
+  var startPage;
+  if (role === 'admin' || role === 'coach') {
+    startPage = role === 'admin' ? 'dashboard' : 'coach-schedule';
+  } else if (role === 'parent') {
+    startPage = 'player-home';
+  } else {
+    startPage = 'player-home';
+  }
+
+  showPage(startPage);
+
+  // Update sidebar user display if those elements exist
+  var nameEl = document.querySelector('.user-name-text');
+  var roleEl = document.querySelector('.user-role-text');
+  var avEl   = document.querySelector('.user-av');
+  if (nameEl && state.currentUser) nameEl.textContent = state.currentUser.name;
+  if (roleEl && state.currentUser) roleEl.textContent = state.currentUser.role;
+  if (avEl   && state.currentUser) avEl.textContent   = state.currentUser.initials;
+}
 function tryDemoLogin(email, pass, err) {
   if (loginRole === 'admin') {
     var c = state.coaches.find(function(c) { return c.email === email && c.password === pass && c.isAdmin; });
