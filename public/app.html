@@ -1756,92 +1756,80 @@ function submitForgotPassword() {
 // ===== LOGIN =====
 // ═══════════════════════════════════════════════════════════════════
 // STAGE 1 — Real Supabase auth, in-memory data
-// Replaces: let loginRole + setLoginRole + doLogin + doLogout
-// Requires: <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script> in <head>
 // ═══════════════════════════════════════════════════════════════════
 
-// ── Supabase client (config passed from parent via URL query string) ──
-const _params = new URLSearchParams(window.location.search);
-const SUPABASE_URL = _params.get('supabaseUrl') || '';
-const SUPABASE_ANON_KEY = _params.get('supabaseAnonKey') || '';
+var _params = new URLSearchParams(window.location.search);
+var SUPABASE_URL = _params.get('supabaseUrl') || '';
+var SUPABASE_ANON_KEY = _params.get('supabaseAnonKey') || '';
 
-let sb = null;
+var sb = null;
 if (SUPABASE_URL && SUPABASE_ANON_KEY && window.supabase) {
   sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     auth: { persistSession: true, autoRefreshToken: true, storageKey: '3ball-auth' }
   });
 }
 
-// ── Login role tabs (unchanged behaviour) ─────────────────────────────
-let loginRole = 'player';
+var loginRole = 'player';
 function setLoginRole(role, el) {
   loginRole = role;
-  document.querySelectorAll('.login-role-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.login-role-tab').forEach(function(t) { t.classList.remove('active'); });
   if (el) el.classList.add('active');
 }
 
-// ── Resolve a Supabase user → role + linked record in state ───────────
-// Order: user_metadata.role → email match in state.coaches → state.parents
 function resolveSupabaseUser(user) {
-  const email = (user.email || '').toLowerCase();
-  const metaRole = user.user_metadata?.role; // 'admin' | 'coach' | 'parent'
+  var email = (user.email || '').toLowerCase();
+  var metaRole = user.user_metadata && user.user_metadata.role;
 
-  // 1. Metadata wins
   if (metaRole === 'admin' || metaRole === 'coach') {
-    let coach = state.coaches.find(c => c.email.toLowerCase() === email);
+    var coach = state.coaches.find(function(c) { return c.email.toLowerCase() === email; });
     if (!coach) {
-      // Real Supabase user with no in-memory record yet — synthesize one
-      // so the rest of the app (which still reads from state) works.
       coach = {
         id: 'sb-' + user.id.slice(0, 8),
-        first: user.user_metadata?.first || email.split('@')[0],
-        last:  user.user_metadata?.last  || '',
-        email,
+        first: (user.user_metadata && user.user_metadata.first) || email.split('@')[0],
+        last:  (user.user_metadata && user.user_metadata.last)  || '',
+        email: email,
         password: '',
         isAdmin: metaRole === 'admin',
-        teams: user.user_metadata?.teams || ['T','C','B','G','O','3BHS','3BGals'],
-        phone: user.user_metadata?.phone || ''
+        teams: (user.user_metadata && user.user_metadata.teams) || ['T','C','B','G','O','3BHS','3BGals'],
+        phone: (user.user_metadata && user.user_metadata.phone) || ''
       };
       state.coaches.push(coach);
     } else {
-      // Honour metadata if it upgrades the in-memory record
       coach.isAdmin = coach.isAdmin || metaRole === 'admin';
     }
-    return { role: metaRole, coach };
+    return { role: metaRole, coach: coach };
   }
 
   if (metaRole === 'parent') {
-    let parent = state.parents.find(p => p.email.toLowerCase() === email);
+    var parent = state.parents.find(function(p) { return p.email.toLowerCase() === email; });
     if (!parent) {
       parent = {
         id: 'sb-' + user.id.slice(0, 8),
-        first: user.user_metadata?.first || email.split('@')[0],
-        last:  user.user_metadata?.last  || '',
-        email,
+        first: (user.user_metadata && user.user_metadata.first) || email.split('@')[0],
+        last:  (user.user_metadata && user.user_metadata.last)  || '',
+        email: email,
         password: '',
-        phone: user.user_metadata?.phone || '',
+        phone: (user.user_metadata && user.user_metadata.phone) || '',
         playerIds: []
       };
       state.parents.push(parent);
     }
-    return { role: 'parent', parent };
+    return { role: 'parent', parent: parent };
   }
 
-  // 2. No metadata — fall back to email match in state
-  const coach = state.coaches.find(c => c.email.toLowerCase() === email);
-  if (coach) return { role: coach.isAdmin ? 'admin' : 'coach', coach };
+  var coachMatch = state.coaches.find(function(c) { return c.email.toLowerCase() === email; });
+  if (coachMatch) return { role: coachMatch.isAdmin ? 'admin' : 'coach', coach: coachMatch };
 
-  const parent = state.parents.find(p => p.email.toLowerCase() === email);
-  if (parent) return { role: 'parent', parent };
+  var parentMatch = state.parents.find(function(p) { return p.email.toLowerCase() === email; });
+  if (parentMatch) return { role: 'parent', parent: parentMatch };
 
   return null;
 }
 
-// ── Sign in ───────────────────────────────────────────────────────────
-async function doLogin() {
-  const email = document.getElementById('login-email').value.trim();
-  const pass  = document.getElementById('login-password').value;
-  const err   = document.getElementById('login-error');
+function doLogin() {
+  var email = document.getElementById('login-email').value.trim();
+  var pass  = document.getElementById('login-password').value;
+  var err   = document.getElementById('login-error');
   err.textContent = '';
 
   if (!email || !pass) {
@@ -1849,35 +1837,23 @@ async function doLogin() {
     return;
   }
 
-  // 1. Try real Supabase auth first (only if client is configured)
   if (sb) {
-    try {
-      const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
-      if (!error && data?.user) {
-        const resolved = resolveSupabaseUser(data.user);
+    sb.auth.signInWithPassword({ email: email, password: pass }).then(function(result) {
+      if (!result.error && result.data && result.data.user) {
+        var resolved = resolveSupabaseUser(result.data.user);
         if (!resolved) {
           err.textContent = 'Account exists but no role is assigned. Contact your admin.';
-          await sb.auth.signOut();
+          sb.auth.signOut();
           return;
         }
-        if (resolved.role === 'admin') {
+        if (resolved.role === 'admin' || resolved.role === 'coach') {
           state.currentCoach = resolved.coach;
           state.currentUser = {
-            role: 'admin',
+            role: resolved.role,
             name: resolved.coach.first + ' ' + resolved.coach.last,
             initials: ((resolved.coach.first[0] || '?') + (resolved.coach.last[0] || '')).toUpperCase()
           };
-          enterApp('admin');
-          return;
-        }
-        if (resolved.role === 'coach') {
-          state.currentCoach = resolved.coach;
-          state.currentUser = {
-            role: 'coach',
-            name: resolved.coach.first + ' ' + resolved.coach.last,
-            initials: ((resolved.coach.first[0] || '?') + (resolved.coach.last[0] || '')).toUpperCase()
-          };
-          enterApp('coach');
+          enterApp(resolved.role);
           return;
         }
         if (resolved.role === 'parent') {
@@ -1891,15 +1867,20 @@ async function doLogin() {
           return;
         }
       }
-      // Supabase rejected — fall through to demo accounts below
-    } catch (e) {
+      // Supabase rejected — try demo accounts
+      tryDemoLogin(email, pass, err);
+    }).catch(function(e) {
       console.warn('Supabase auth threw, falling back to demo:', e);
-    }
+      tryDemoLogin(email, pass, err);
+    });
+  } else {
+    tryDemoLogin(email, pass, err);
   }
+}
 
-  // 2. Fallback: demo accounts in in-memory state (so existing demos still work)
+function tryDemoLogin(email, pass, err) {
   if (loginRole === 'admin') {
-    const c = state.coaches.find(c => c.email === email && c.password === pass && c.isAdmin);
+    var c = state.coaches.find(function(c) { return c.email === email && c.password === pass && c.isAdmin; });
     if (c) {
       state.currentCoach = c;
       state.currentUser = {
@@ -1915,23 +1896,22 @@ async function doLogin() {
   }
 
   if (loginRole === 'coach') {
-    const c = state.coaches.find(c => c.email === email && c.password === pass);
-    if (c) {
-      state.currentCoach = c;
+    var coach = state.coaches.find(function(c) { return c.email === email && c.password === pass; });
+    if (coach) {
+      state.currentCoach = coach;
       state.currentUser = {
-        role: c.isAdmin ? 'admin' : 'coach',
-        name: c.first + ' ' + c.last,
-        initials: (c.first[0] + c.last[0]).toUpperCase()
+        role: coach.isAdmin ? 'admin' : 'coach',
+        name: coach.first + ' ' + coach.last,
+        initials: (coach.first[0] + coach.last[0]).toUpperCase()
       };
-      enterApp(c.isAdmin ? 'admin' : 'coach');
+      enterApp(coach.isAdmin ? 'admin' : 'coach');
       return;
     }
     err.textContent = 'Invalid coach credentials.';
     return;
   }
 
-  // Parent / player tab
-  const parent = state.parents.find(p => p.email === email && p.password === pass);
+  var parent = state.parents.find(function(p) { return p.email === email && p.password === pass; });
   if (parent) {
     state.currentParent = parent;
     state.currentUser = {
@@ -1945,10 +1925,9 @@ async function doLogin() {
   err.textContent = 'Invalid email or password.';
 }
 
-// ── Sign out ──────────────────────────────────────────────────────────
-async function doLogout() {
+function doLogout() {
   if (sb) {
-    try { await sb.auth.signOut(); } catch (e) { console.warn('signOut failed', e); }
+    try { sb.auth.signOut(); } catch (e) { console.warn('signOut failed', e); }
   }
   state.currentUser = null;
   state.currentCoach = null;
@@ -1957,18 +1936,16 @@ async function doLogout() {
   document.getElementById('app').style.display = 'none';
   document.getElementById('login-email').value = '';
   document.getElementById('login-password').value = '';
-  const errEl = document.getElementById('login-error');
+  var errEl = document.getElementById('login-error');
   if (errEl) errEl.textContent = '';
 }
 
-// ── Restore session on page load ──────────────────────────────────────
-// If the user already signed in and reloaded the iframe, log them straight in.
-(async function restoreSession() {
+(function restoreSession() {
   if (!sb) return;
-  try {
-    const { data: { session } } = await sb.auth.getSession();
-    if (!session?.user) return;
-    const resolved = resolveSupabaseUser(session.user);
+  sb.auth.getSession().then(function(result) {
+    var session = result.data && result.data.session;
+    if (!session || !session.user) return;
+    var resolved = resolveSupabaseUser(session.user);
     if (!resolved) return;
     if (resolved.role === 'admin' || resolved.role === 'coach') {
       state.currentCoach = resolved.coach;
@@ -1987,11 +1964,10 @@ async function doLogout() {
       };
       enterApp('parent');
     }
-  } catch (e) {
+  }).catch(function(e) {
     console.warn('Session restore failed', e);
-  }
+  });
 })();
-
 // ===== REGISTRATION =====
 let regStep = 1;
 let regPlayerForms = []; // staged player data
