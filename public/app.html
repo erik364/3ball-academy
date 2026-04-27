@@ -1759,8 +1759,8 @@ function submitForgotPassword() {
 // ═══════════════════════════════════════════════════════════════════
 
 var _params = new URLSearchParams(window.location.search);
-var SUPABASE_URL = _params.get('supabaseUrl') || '';
-var SUPABASE_ANON_KEY = _params.get('supabaseAnonKey') || '';
+var SUPABASE_URL = 'https://aqrysacrycvkjwcbggwj.supabase.co';
+var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFxcnlzYWNyeWN2a2p3Y2JnZ3dqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5NDkyMDksImV4cCI6MjA5MjUyNTIwOX0.VAkIfwu1_oSLK5fs8eJuMJO7SIRhzTj-RS1v3O1_oq4';
 
 var sb = null;
 if (SUPABASE_URL && SUPABASE_ANON_KEY && window.supabase) {
