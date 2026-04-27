@@ -602,7 +602,7 @@ tbody td { padding: 10px 14px; color: var(--text); vertical-align: middle; }
   .btn { font-size: 12px; }
 }
 </style>
-</head>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script></head>
 <body>
 
 <!-- ===== LOGIN ===== -->
@@ -1754,6 +1754,25 @@ function submitForgotPassword() {
 }
 
 // ===== LOGIN =====
+// ═══════════════════════════════════════════════════════════════════
+// STAGE 1 — Real Supabase auth, in-memory data
+// Replaces: let loginRole + setLoginRole + doLogin + doLogout
+// Requires: <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script> in <head>
+// ═══════════════════════════════════════════════════════════════════
+
+// ── Supabase client (config passed from parent via URL query string) ──
+const _params = new URLSearchParams(window.location.search);
+const SUPABASE_URL = _params.get('supabaseUrl') || '';
+const SUPABASE_ANON_KEY = _params.get('supabaseAnonKey') || '';
+
+let sb = null;
+if (SUPABASE_URL && SUPABASE_ANON_KEY && window.supabase) {
+  sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: { persistSession: true, autoRefreshToken: true, storageKey: '3ball-auth' }
+  });
+}
+
+// ── Login role tabs (unchanged behaviour) ─────────────────────────────
 let loginRole = 'player';
 function setLoginRole(role, el) {
   loginRole = role;
@@ -1761,187 +1780,217 @@ function setLoginRole(role, el) {
   if (el) el.classList.add('active');
 }
 
-function doLogin() {
+// ── Resolve a Supabase user → role + linked record in state ───────────
+// Order: user_metadata.role → email match in state.coaches → state.parents
+function resolveSupabaseUser(user) {
+  const email = (user.email || '').toLowerCase();
+  const metaRole = user.user_metadata?.role; // 'admin' | 'coach' | 'parent'
+
+  // 1. Metadata wins
+  if (metaRole === 'admin' || metaRole === 'coach') {
+    let coach = state.coaches.find(c => c.email.toLowerCase() === email);
+    if (!coach) {
+      // Real Supabase user with no in-memory record yet — synthesize one
+      // so the rest of the app (which still reads from state) works.
+      coach = {
+        id: 'sb-' + user.id.slice(0, 8),
+        first: user.user_metadata?.first || email.split('@')[0],
+        last:  user.user_metadata?.last  || '',
+        email,
+        password: '',
+        isAdmin: metaRole === 'admin',
+        teams: user.user_metadata?.teams || ['T','C','B','G','O','3BHS','3BGals'],
+        phone: user.user_metadata?.phone || ''
+      };
+      state.coaches.push(coach);
+    } else {
+      // Honour metadata if it upgrades the in-memory record
+      coach.isAdmin = coach.isAdmin || metaRole === 'admin';
+    }
+    return { role: metaRole, coach };
+  }
+
+  if (metaRole === 'parent') {
+    let parent = state.parents.find(p => p.email.toLowerCase() === email);
+    if (!parent) {
+      parent = {
+        id: 'sb-' + user.id.slice(0, 8),
+        first: user.user_metadata?.first || email.split('@')[0],
+        last:  user.user_metadata?.last  || '',
+        email,
+        password: '',
+        phone: user.user_metadata?.phone || '',
+        playerIds: []
+      };
+      state.parents.push(parent);
+    }
+    return { role: 'parent', parent };
+  }
+
+  // 2. No metadata — fall back to email match in state
+  const coach = state.coaches.find(c => c.email.toLowerCase() === email);
+  if (coach) return { role: coach.isAdmin ? 'admin' : 'coach', coach };
+
+  const parent = state.parents.find(p => p.email.toLowerCase() === email);
+  if (parent) return { role: 'parent', parent };
+
+  return null;
+}
+
+// ── Sign in ───────────────────────────────────────────────────────────
+async function doLogin() {
   const email = document.getElementById('login-email').value.trim();
   const pass  = document.getElementById('login-password').value;
   const err   = document.getElementById('login-error');
   err.textContent = '';
 
-  if (loginRole === 'admin') {
-    // Admin coach login
-    const coach = state.coaches.find(c => c.email === email && c.password === pass && c.isAdmin);
-    if (coach) {
-      state.currentCoach = coach;
-      state.currentUser = { role:'admin', name: coach.first+' '+coach.last, initials:(coach.first[0]+coach.last[0]).toUpperCase() };
-      enterApp('admin');
-    } else {
-      err.textContent = 'No admin coach found with those credentials.';
-    }
-  } else if (loginRole === 'coach') {
-    // Non-admin coach login
-    const coach = state.coaches.find(c => c.email === email && c.password === pass && !c.isAdmin);
-    if (coach) {
-      state.currentCoach = coach;
-      state.currentUser = { role:'coach', name: coach.first+' '+coach.last, initials:(coach.first[0]+coach.last[0]).toUpperCase() };
-      enterApp('coach');
-    } else {
-      err.textContent = 'No coach account found. Try sarah@3ball.org / coach2';
-    }
-  } else {
-    // Parent/player login
-    const parent = state.parents.find(p => p.email === email && p.password === pass);
-    if (parent) {
-      state.currentParent = parent;
-      const firstPlayer = state.players.find(p => parent.playerIds.includes(p.id));
-      if (firstPlayer) {
-        state.currentUser = { ...firstPlayer, role:'parent', initials: initials(firstPlayer) };
-      } else {
-        state.currentUser = { id:'none', first:parent.first, last:parent.last, role:'parent', initials:(parent.first[0]+parent.last[0]).toUpperCase(), team:'—' };
+  if (!email || !pass) {
+    err.textContent = 'Please enter your email and password.';
+    return;
+  }
+
+  // 1. Try real Supabase auth first (only if client is configured)
+  if (sb) {
+    try {
+      const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
+      if (!error && data?.user) {
+        const resolved = resolveSupabaseUser(data.user);
+        if (!resolved) {
+          err.textContent = 'Account exists but no role is assigned. Contact your admin.';
+          await sb.auth.signOut();
+          return;
+        }
+        if (resolved.role === 'admin') {
+          state.currentCoach = resolved.coach;
+          state.currentUser = {
+            role: 'admin',
+            name: resolved.coach.first + ' ' + resolved.coach.last,
+            initials: ((resolved.coach.first[0] || '?') + (resolved.coach.last[0] || '')).toUpperCase()
+          };
+          enterApp('admin');
+          return;
+        }
+        if (resolved.role === 'coach') {
+          state.currentCoach = resolved.coach;
+          state.currentUser = {
+            role: 'coach',
+            name: resolved.coach.first + ' ' + resolved.coach.last,
+            initials: ((resolved.coach.first[0] || '?') + (resolved.coach.last[0] || '')).toUpperCase()
+          };
+          enterApp('coach');
+          return;
+        }
+        if (resolved.role === 'parent') {
+          state.currentParent = resolved.parent;
+          state.currentUser = {
+            role: 'parent',
+            name: resolved.parent.first + ' ' + resolved.parent.last,
+            initials: ((resolved.parent.first[0] || '?') + (resolved.parent.last[0] || '')).toUpperCase()
+          };
+          enterApp('parent');
+          return;
+        }
       }
-      enterApp('player');
-    } else {
-      err.textContent = 'Email or password incorrect. Try parent@3ball.org / parent';
+      // Supabase rejected — fall through to demo accounts below
+    } catch (e) {
+      console.warn('Supabase auth threw, falling back to demo:', e);
     }
   }
-}
 
-function enterApp(role) {
-  document.getElementById('login-page').style.display = 'none';
-  document.getElementById('app').style.display = 'block';
-  refreshSidebarUser();
-
-  const coachNav = document.getElementById('coach-nav');
-  const playerNav = document.getElementById('player-nav');
-  const coachOnlyNav = document.getElementById('coach-only-nav');
-
-  // Show/hide admin-only buttons
-  const showAdmin = role === 'admin';
-  ['btn-new-practice','btn-new-tournament'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.style.display = showAdmin ? '' : 'none';
-  });
-
-  if (role === 'admin') {
-    if (state.currentUser) state.currentUser.isAdmin = true;
-    coachNav.style.display = 'block';
-    coachOnlyNav.style.display = 'none';
-    playerNav.style.display = 'none';
-    document.getElementById('player-switcher').style.display = 'none';
-    showPage('dashboard', document.querySelector('#coach-nav .nav-item'));
-  } else if (role === 'coach') {
-    coachNav.style.display = 'none';
-    coachOnlyNav.style.display = 'block';
-    playerNav.style.display = 'none';
-    document.getElementById('player-switcher').style.display = 'none';
-    showPage('coach-schedule', document.querySelector('#coach-only-nav .nav-item'));
-  } else {
-    coachNav.style.display = 'none';
-    coachOnlyNav.style.display = 'none';
-    playerNav.style.display = 'block';
-    renderPlayerSwitcher();
-    showPage('player-home', document.querySelector('#player-nav .nav-item'));
-  }
-}
-
-function refreshSidebarUser() {
-  const u = state.currentUser;
-  const av = document.getElementById('sidebar-av');
-  const role = u.role;
-
-  if (role === 'admin') {
-    const c = state.currentCoach;
-    av.textContent = u.initials;
-    av.style.background = 'var(--orange)';
-    av.style.color = '#fff';
-    document.getElementById('sidebar-name').textContent = c ? c.first+' '+c.last : u.name;
-    document.getElementById('sidebar-role').textContent = 'Admin Coach';
-  } else if (role === 'coach') {
-    const c = state.currentCoach;
-    av.textContent = u.initials;
-    av.style.background = 'var(--blue)';
-    av.style.color = '#fff';
-    document.getElementById('sidebar-name').textContent = c ? c.first+' '+c.last : u.name;
-    document.getElementById('sidebar-role').textContent = 'Coach · ' + (c ? c.teams.join(', ') : '');
-  } else {
-    const parent = state.currentParent;
-    const parentInitials = parent ? (parent.first[0] + parent.last[0]).toUpperCase() : u.initials;
-    av.textContent = parentInitials;
-    av.style.background = 'var(--green-mid)';
-    av.style.color = '#fff';
-    document.getElementById('sidebar-name').textContent = parent ? parent.first+' '+parent.last : (u.first+' '+u.last);
-    document.getElementById('sidebar-role').textContent = 'Parent account';
+  // 2. Fallback: demo accounts in in-memory state (so existing demos still work)
+  if (loginRole === 'admin') {
+    const c = state.coaches.find(c => c.email === email && c.password === pass && c.isAdmin);
+    if (c) {
+      state.currentCoach = c;
+      state.currentUser = {
+        role: 'admin',
+        name: c.first + ' ' + c.last,
+        initials: (c.first[0] + c.last[0]).toUpperCase()
+      };
+      enterApp('admin');
+      return;
+    }
+    err.textContent = 'Invalid admin credentials.';
+    return;
   }
 
-  // Topbar right chip
-  const topbarActions = document.getElementById('topbar-actions');
-  if (role === 'parent' && u.first) {
-    const colorMap = { T:'#FEF0E6', C:'#E1F5EE', B:'#E6F1FB', G:'#FAEEDA', O:'#E8E7E1', '3BHS':'#FEF0E6', '3BGals':'#E1F5EE' };
-    const textMap  = { T:'#C04A10', C:'#085041', B:'#185FA5', G:'#854F0B', O:'#444441', '3BHS':'#C04A10', '3BGals':'#085041' };
-    const bg    = colorMap[u.team] || '#FEF0E6';
-    const color = textMap[u.team]  || '#C04A10';
-    topbarActions.innerHTML = `
-      <div style="display:flex;align-items:center;gap:8px;padding:5px 12px 5px 6px;border-radius:20px;border:1px solid var(--gray-border);background:var(--white);">
-        <div style="width:26px;height:26px;border-radius:50%;background:${bg};color:${color};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;flex-shrink:0;">${u.initials}</div>
-        <div style="line-height:1.2;">
-          <div style="font-size:13px;font-weight:600;color:var(--text);">${u.first} ${u.last}</div>
-          <div style="font-size:10px;color:var(--text-secondary);">Team ${u.team}</div>
-        </div>
-      </div>`;
-  } else {
-    topbarActions.innerHTML = '';
+  if (loginRole === 'coach') {
+    const c = state.coaches.find(c => c.email === email && c.password === pass);
+    if (c) {
+      state.currentCoach = c;
+      state.currentUser = {
+        role: c.isAdmin ? 'admin' : 'coach',
+        name: c.first + ' ' + c.last,
+        initials: (c.first[0] + c.last[0]).toUpperCase()
+      };
+      enterApp(c.isAdmin ? 'admin' : 'coach');
+      return;
+    }
+    err.textContent = 'Invalid coach credentials.';
+    return;
   }
-}
 
-function renderPlayerSwitcher() {
-  const parent = state.currentParent;
-  if (!parent) { document.getElementById('player-switcher').style.display = 'none'; return; }
-  const myPlayers = state.players.filter(p => parent.playerIds.includes(p.id));
-  if (myPlayers.length <= 1) { document.getElementById('player-switcher').style.display = 'none'; return; }
-  document.getElementById('player-switcher').style.display = 'block';
-  const colorMap = { T:'#FEF0E6', C:'#E1F5EE', B:'#E6F1FB', G:'#FAEEDA', O:'#E8E7E1', '3BHS':'#FEF0E6', '3BGals':'#E1F5EE' };
-  const textMap  = { T:'#C04A10', C:'#085041', B:'#185FA5', G:'#854F0B', O:'#444441', '3BHS':'#C04A10', '3BGals':'#085041' };
-  document.getElementById('switcher-pills').innerHTML = myPlayers.map(p => {
-    const active = state.currentUser && state.currentUser.id === p.id;
-    const avBg   = active ? 'rgba(255,255,255,0.3)' : (colorMap[p.team] || 'rgba(255,255,255,0.12)');
-    const avColor = active ? '#fff' : (textMap[p.team] || '#fff');
-    return `<div onclick="switchToPlayer('${p.id}')" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:var(--radius);cursor:pointer;background:${active?'var(--orange)':'rgba(255,255,255,0.07)'};transition:background 0.12s;">
-      <div style="width:24px;height:24px;border-radius:50%;background:${avBg};display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:${avColor};flex-shrink:0;">${initials(p)}</div>
-      <div style="flex:1;min-width:0;">
-        <div style="font-size:12px;font-weight:500;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${p.first} ${p.last}</div>
-        <div style="font-size:10px;color:rgba(255,255,255,0.55);">Team ${p.team}</div>
-      </div>
-      ${active ? '<span style="font-size:8px;color:rgba(255,255,255,0.9);">●</span>' : ''}
-    </div>`;
-  }).join('');
-}
-
-function switchToPlayer(playerId) {
-  const p = state.players.find(x=>x.id===playerId);
-  if (!p) return;
-  state.currentUser = { ...p, role:'parent', initials: initials(p) };
-  refreshSidebarUser();
-  renderPlayerSwitcher();
-  // Re-render current page for the new player context
-  const activePage = document.querySelector('.page.active');
-  if (activePage) {
-    const pageId = activePage.id.replace('page-','');
-    showPage(pageId, document.querySelector('#player-nav .nav-item.active'));
+  // Parent / player tab
+  const parent = state.parents.find(p => p.email === email && p.password === pass);
+  if (parent) {
+    state.currentParent = parent;
+    state.currentUser = {
+      role: 'parent',
+      name: parent.first + ' ' + parent.last,
+      initials: (parent.first[0] + parent.last[0]).toUpperCase()
+    };
+    enterApp('parent');
+    return;
   }
-  toast(`Switched to ${p.first} ${p.last}`);
+  err.textContent = 'Invalid email or password.';
 }
 
-function doLogout() {
+// ── Sign out ──────────────────────────────────────────────────────────
+async function doLogout() {
+  if (sb) {
+    try { await sb.auth.signOut(); } catch (e) { console.warn('signOut failed', e); }
+  }
+  state.currentUser = null;
+  state.currentCoach = null;
+  state.currentParent = null;
   document.getElementById('login-page').style.display = 'flex';
   document.getElementById('app').style.display = 'none';
   document.getElementById('login-email').value = '';
   document.getElementById('login-password').value = '';
-  document.getElementById('login-error').textContent = '';
-  state.currentUser = null;
-  state.currentParent = null;
-  state.currentCoach = null;
-  loginRole = 'player';
-  document.querySelectorAll('.login-role-tab').forEach((t,i) => t.classList.toggle('active', i===0));
+  const errEl = document.getElementById('login-error');
+  if (errEl) errEl.textContent = '';
 }
+
+// ── Restore session on page load ──────────────────────────────────────
+// If the user already signed in and reloaded the iframe, log them straight in.
+(async function restoreSession() {
+  if (!sb) return;
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session?.user) return;
+    const resolved = resolveSupabaseUser(session.user);
+    if (!resolved) return;
+    if (resolved.role === 'admin' || resolved.role === 'coach') {
+      state.currentCoach = resolved.coach;
+      state.currentUser = {
+        role: resolved.role,
+        name: resolved.coach.first + ' ' + resolved.coach.last,
+        initials: ((resolved.coach.first[0] || '?') + (resolved.coach.last[0] || '')).toUpperCase()
+      };
+      enterApp(resolved.role);
+    } else if (resolved.role === 'parent') {
+      state.currentParent = resolved.parent;
+      state.currentUser = {
+        role: 'parent',
+        name: resolved.parent.first + ' ' + resolved.parent.last,
+        initials: ((resolved.parent.first[0] || '?') + (resolved.parent.last[0] || '')).toUpperCase()
+      };
+      enterApp('parent');
+    }
+  } catch (e) {
+    console.warn('Session restore failed', e);
+  }
+})();
 
 // ===== REGISTRATION =====
 let regStep = 1;
