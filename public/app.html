@@ -1772,7 +1772,22 @@ function setLoginRole(role, el) {
   document.querySelectorAll('.login-role-tab').forEach(function(t) { t.classList.remove('active'); });
   if (el) el.classList.add('active');
 }
-
+// ===== Locations: real Supabase data =====
+async function loadLocations() {
+  if (!sb) return;
+  try {
+    const { data, error } = await sb.from('locations').select('*').order('name');
+    if (error) {
+      console.error('loadLocations error:', error);
+      return;
+    }
+    state.locations = (data || []).map(function(row) {
+      return { id: row.id, name: row.name, address: row.address || '' };
+    });
+  } catch (e) {
+    console.error('loadLocations threw:', e);
+  }
+}
 function resolveSupabaseUser(user) {
   var email = (user.email || '').toLowerCase();
   var metaRole = user.user_metadata && user.user_metadata.role;
