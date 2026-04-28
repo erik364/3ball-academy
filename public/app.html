@@ -1907,8 +1907,9 @@ function enterApp(role) {
   document.getElementById('login-page').style.display = 'none';
   document.getElementById('app').style.display = 'block';
 
-  loadLocations().then(function() {
+  Promise.all([loadLocations(), loadCoaches()]).then(function() {
     if (typeof renderLocations === 'function') renderLocations();
+    if (typeof renderCoachManagement === 'function') renderCoachManagement();
   });
 
   var startPage;
@@ -3368,37 +3369,55 @@ function openCoachModal(id) {
   openModal('coach-modal');
 }
 
-function saveCoach() {
-  const first = document.getElementById('cm-first').value.trim();
-  const last  = document.getElementById('cm-last').value.trim();
-  const email = document.getElementById('cm-email').value.trim();
-  if (!first || !last || !email) { alert('Name and email are required.'); return; }
-  const teams = [...document.querySelectorAll('.cm-team-cb:checked')].map(cb=>cb.value);
-  const isAdmin = document.getElementById('cm-admin').checked;
-  const pass = document.getElementById('cm-pass').value;
-  const phone = document.getElementById('cm-phone').value;
-
-  if (editingCoachId) {
-    const idx = state.coaches.findIndex(c=>c.id===editingCoachId);
-    state.coaches[idx] = { ...state.coaches[idx], first, last, email, teams, isAdmin, phone };
-    if (pass) state.coaches[idx].password = pass;
-    toast('Coach updated!');
-  } else {
-    state.coaches.push({ id:uid(), first, last, email, password: pass||'coach', teams, isAdmin, phone });
-    toast('Coach added!');
+async function saveCoach() {
+  const id = document.getElementById('coach-id').value;
+  if (!id) {
+    toast('To add a new coach, create their auth user in Supabase first');
+    return;
   }
+  const first = document.getElementById('coach-first').value.trim();
+  const last  = document.getElementById('coach-last').value.trim();
+  const email = document.getElementById('coach-email').value.trim();
+  const phone = document.getElementById('coach-phone').value.trim();
+  const isAdmin = document.getElementById('coach-admin').checked;
+  const teams = Array.from(document.querySelectorAll('.coach-team-cb:checked')).map(function(cb) { return cb.value; });
+
+  if (!first || !last || !email) { toast('Name and email are required'); return; }
+  if (!sb) { toast('Auth not configured'); return; }
+
+  const { error } = await sb.from('coaches')
+    .update({
+      first: first, last: last, email: email, phone: phone || null,
+      is_admin: isAdmin, teams: teams
+    })
+    .eq('id', id);
+
+  if (error) {
+    console.error('saveCoach error:', error);
+    toast(error.code === '42501' ? 'Only admins can edit coaches' : 'Failed: ' + error.message);
+    return;
+  }
+
+  await loadCoaches();
   closeModal('coach-modal');
   renderCoachManagement();
+  toast('Coach saved!');
 }
 
-function removeCoach(id) {
-  if (!confirm('Remove this coach?')) return;
-  state.coaches = state.coaches.filter(c=>c.id!==id);
-  // Remove from all sessions
-  state.practices.forEach(p => { if (p.coachIds) p.coachIds = p.coachIds.filter(cid=>cid!==id); });
-  state.tournaments.forEach(t => { if (t.coachIds) t.coachIds = t.coachIds.filter(cid=>cid!==id); });
+async function removeCoach(id) {
+  if (!confirm('Remove this coach? This will also delete their auth account.')) return;
+  if (!sb) { toast('Auth not configured'); return; }
+
+  const { error } = await sb.from('coaches').delete().eq('id', id);
+  if (error) {
+    console.error('removeCoach error:', error);
+    toast(error.code === '42501' ? 'Only admins can remove coaches' : 'Failed: ' + error.message);
+    return;
+  }
+
+  await loadCoaches();
   renderCoachManagement();
-  toast('Coach removed.');
+  toast('Coach removed. Note: their auth account still exists in Supabase.');
 }
 
 // Extend showPage to render coach pages
