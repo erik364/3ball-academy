@@ -601,18 +601,25 @@ tbody td { padding: 10px 14px; color: var(--text); vertical-align: middle; }
   table { min-width: 540px; }
   .btn { font-size: 12px; }
 }
+/* ===== Role-based sidebar visibility ===== */
 body[data-role] #coach-nav,
 body[data-role] #coach-only-nav,
 body[data-role] #player-nav,
 body[data-role] #player-switcher { display: none !important; }
+
 body[data-role="admin"] #coach-nav { display: block !important; }
 body[data-role="coach"] #coach-only-nav { display: block !important; }
 body[data-role="parent"] #player-nav { display: block !important; }
-body[data-role="parent"] #player-switcher { display: block !important; }  
+body[data-role="parent"] #player-switcher { display: block !important; }
+
+/* Hide the "More" overflow button for parents — they don't need it */
+body[data-role="parent"] .mobile-more-btn { display: none !important; }
+
+/* Also hide it for coach (their nav is small enough) */
+body[data-role="coach"] .mobile-more-btn { display: none !important; }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script></head>
 <body>
-
 <!-- ===== LOGIN ===== -->
 <div id="login-page">
   <div class="login-box" style="background:var(--white);border-radius:var(--radius-lg);width:100%;max-width:360px;box-shadow:0 8px 40px rgba(0,0,0,0.35);overflow:hidden;">
