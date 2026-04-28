@@ -3715,7 +3715,7 @@ function renderSwitcherPills() {
   const parent = state.currentParent;
   const switcherDiv = document.getElementById('player-switcher');
   if (!parent || !switcherDiv) return;
-  const myPlayers = state.players.filter(p => parent.playerIds.includes(p.id));
+  const myPlayers = state.players.filter(p => p.parentId === parent.id);
   // Only show switcher if multiple players
   if (myPlayers.length < 2) { switcherDiv.style.display = 'none'; return; }
   switcherDiv.style.display = 'block';
