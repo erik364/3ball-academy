@@ -1877,31 +1877,27 @@ function enterApp(role) {
   document.getElementById('login-page').style.display = 'none';
   document.getElementById('app').style.display = 'block';
 
-  // Hide ALL role-specific navs first
-  var coachNav = document.getElementById('coach-only-nav');
-  var playerNav = document.getElementById('player-nav');
-  var playerSwitcher = document.getElementById('player-switcher');
-  if (coachNav) coachNav.style.display = 'none';
-  if (playerNav) playerNav.style.display = 'none';
+  // Get all three navs and the player switcher by their actual IDs
+  var adminNav      = document.getElementById('coach-nav');         // <- the admin/full nav
+  var coachNav      = document.getElementById('coach-only-nav');    // <- the coach (limited) nav
+  var playerNav     = document.getElementById('player-nav');        // <- the parent/player nav
+  var playerSwitcher = document.getElementById('player-switcher');  // <- player chip (parents only)
+
+  // Hide everything first
+  if (adminNav)       adminNav.style.display = 'none';
+  if (coachNav)       coachNav.style.display = 'none';
+  if (playerNav)      playerNav.style.display = 'none';
   if (playerSwitcher) playerSwitcher.style.display = 'none';
 
-  // The default (first) nav is the admin/coach-management one — find it and toggle
-  // It's the .sidebar .nav block without an id
-  var defaultNav = null;
-  document.querySelectorAll('.sidebar .nav').forEach(function(n) {
-    if (!n.id) defaultNav = n;
-  });
-
+  // Show the right one for this role
   var startPage;
   if (role === 'admin') {
-    if (defaultNav) defaultNav.style.display = '';
+    if (adminNav) adminNav.style.display = '';
     startPage = 'dashboard';
   } else if (role === 'coach') {
-    if (defaultNav) defaultNav.style.display = 'none';
     if (coachNav) coachNav.style.display = '';
     startPage = 'coach-schedule';
   } else if (role === 'parent') {
-    if (defaultNav) defaultNav.style.display = 'none';
     if (playerNav) playerNav.style.display = '';
     if (playerSwitcher) playerSwitcher.style.display = '';
     startPage = 'player-home';
