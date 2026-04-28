@@ -1889,6 +1889,10 @@ function doLogin() {
 }
 function enterApp(role) {
   // Hide login, show app
+  // Load real data from Supabase
+  loadLocations().then(function() {
+    if (typeof renderLocations === 'function') renderLocations();
+  });
   document.getElementById('login-page').style.display = 'none';
   document.getElementById('app').style.display = 'block';
 
