@@ -1788,7 +1788,34 @@ function setLoginRole(role, el) {
   if (el) el.classList.add('active');
 }
 // ===== Locations: real Supabase data =====
-// ===== Parents: real Supabase data =====
+// ===== Players: real Supabase data =====
+async function loadPlayers() {
+  if (!sb) return;
+  try {
+    const { data, error } = await sb.from('players').select('*').order('last');
+    if (error) {
+      console.error('loadPlayers error:', error);
+      return;
+    }
+    state.players = (data || []).map(function(row) {
+      return {
+        id: row.id,
+        first: row.first,
+        last: row.last,
+        team: row.team || '',
+        grad: row.grad_year || '',
+        jersey: row.jersey || '',
+        parentId: row.parent_id,
+        waiver: !!row.waiver_signed
+      };
+    });
+    state.parents.forEach(function(p) {
+      p.playerIds = state.players.filter(function(pl) { return pl.parentId === p.id; }).map(function(pl) { return pl.id; });
+    });
+  } catch (e) {
+    console.error('loadPlayers threw:', e);
+  }
+}
 async function loadParents() {
   if (!sb) return;
   try {
@@ -1903,7 +1930,7 @@ function doLogin() {
       err.textContent = 'Invalid email or password.';
       return;
     }
-   Promise.all([loadCoaches(), loadParents()]).then(function() {
+   Promise.all([loadCoaches(), loadParents(), loadPlayers()]).then(function() {
       var resolved = resolveSupabaseUser(result.data.user);
       if (!resolved) {
         err.textContent = 'Account exists but no role is assigned. Contact your admin.';
@@ -1938,7 +1965,7 @@ function enterApp(role) {
   document.getElementById('login-page').style.display = 'none';
   document.getElementById('app').style.display = 'block';
 
-Promise.all([loadLocations(), loadCoaches(), loadParents()]).then(function() {
+Promise.all([loadLocations(), loadCoaches(), loadParents(), loadPlayers()]).then(function() {
     if (typeof renderLocations === 'function') renderLocations();
     if (typeof renderCoachManagement === 'function') renderCoachManagement();
   });
@@ -1977,7 +2004,7 @@ Promise.all([loadLocations(), loadCoaches(), loadParents()]).then(function() {
   sb.auth.getSession().then(function(result) {
     var session = result.data && result.data.session;
     if (!session || !session.user) return;
-    Promise.all([loadCoaches(), loadParents()]).then(function() {
+    Promise.all([loadCoaches(), loadParents(), loadPlayers()]).then(function() {
         var resolved = resolveSupabaseUser(session.user);
         if (!resolved) return;
         if (resolved.role === 'admin' || resolved.role === 'coach') {
@@ -2072,14 +2099,14 @@ function collectRegPlayerForms() {
   }));
 }
 
-function regNext() {
+async function regNext() {
   if (regStep === 1) {
     const first = document.getElementById('reg-parent-first').value.trim();
     const last  = document.getElementById('reg-parent-last').value.trim();
     const email = document.getElementById('reg-email').value.trim();
     const pass  = document.getElementById('reg-pass').value;
     if (!first || !last || !email || !pass) { alert('Please fill in all required fields.'); return; }
-    if (state.parents.find(p=>p.email===email)) { alert('An account with that email already exists.'); return; }
+    if (pass.length < 6) { alert('Password must be at least 6 characters.'); return; }
     regStep = 2;
     showRegStep(2);
   } else if (regStep === 2) {
@@ -2097,30 +2124,71 @@ function regNext() {
     showRegStep(4);
   } else {
     if (!document.getElementById('waiver-agree').checked) { alert('Please agree to the waiver to continue.'); return; }
-    // Create parent account
-    const parentId = uid();
-    const newParent = {
-      id: parentId,
-      first: document.getElementById('reg-parent-first').value.trim(),
-      last:  document.getElementById('reg-parent-last').value.trim(),
-      email: document.getElementById('reg-email').value.trim(),
-      password: document.getElementById('reg-pass').value,
-      phone: document.getElementById('reg-phone').value,
-      playerIds: []
-    };
-    // Create players
+    if (!sb) { alert('Auth not configured'); return; }
+
+    const first = document.getElementById('reg-parent-first').value.trim();
+    const last  = document.getElementById('reg-parent-last').value.trim();
+    const email = document.getElementById('reg-email').value.trim();
+    const pass  = document.getElementById('reg-pass').value;
+    const phone = document.getElementById('reg-phone').value.trim();
     const players = collectRegPlayerForms();
-    players.forEach(p => {
-      const pid = uid();
-      newParent.playerIds.push(pid);
-      state.players.push({ id:pid, first:p.first, last:p.last, parentId, team:'', grad:p.grad, waiver:true });
-    });
-    state.parents.push(newParent);
-    closeModal('register-modal');
-    toast('Account created! You can now sign in.');
-    document.getElementById('login-email').value = newParent.email;
-    loginRole = 'player';
-    document.querySelectorAll('.login-role-tab').forEach((t,i) => t.classList.toggle('active', i===0));
+
+    const submitBtn = document.querySelector('#register-modal .btn-primary');
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Creating account...'; }
+
+    try {
+      const { data: signUpData, error: signUpError } = await sb.auth.signUp({
+        email: email,
+        password: pass,
+        options: {
+          data: { role: 'parent', first: first, last: last, phone: phone }
+        }
+      });
+
+      if (signUpError) { alert('Could not create account: ' + signUpError.message); return; }
+      if (!signUpData || !signUpData.user) { alert('Account creation failed unexpectedly. Please try again.'); return; }
+
+      const newUserId = signUpData.user.id;
+
+      const { error: parentError } = await sb.from('parents').insert({
+        id: newUserId, first: first, last: last, email: email, phone: phone || null
+      });
+
+      if (parentError) {
+        console.error('parent insert error:', parentError);
+        alert('Account created but profile setup failed: ' + parentError.message + '. Please contact support.');
+        return;
+      }
+
+      if (players.length > 0) {
+        const playerRows = players.map(function(p) {
+          return {
+            parent_id: newUserId,
+            first: p.first.trim(),
+            last: p.last.trim(),
+            team: p.team || null,
+            grad_year: p.grad ? parseInt(p.grad, 10) : null,
+            waiver_signed: true,
+            waiver_signed_at: new Date().toISOString()
+          };
+        });
+        const { error: playerError } = await sb.from('players').insert(playerRows);
+        if (playerError) {
+          console.error('player insert error:', playerError);
+          alert('Account created but player setup had errors: ' + playerError.message + '. Please contact support.');
+        }
+      }
+
+      closeModal('register-modal');
+      toast('Account created! You can now sign in.');
+      document.getElementById('login-email').value = email;
+      document.getElementById('login-password').value = '';
+    } catch (e) {
+      console.error('Registration error:', e);
+      alert('Something went wrong. Please try again or contact support.');
+    } finally {
+      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Create Account'; }
+    }
   }
 }
 
