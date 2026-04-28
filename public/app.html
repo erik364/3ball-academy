@@ -1939,6 +1939,16 @@ function enterApp(role) {
 Promise.all([loadLocations(), loadCoaches(), loadParents(), loadPlayers()]).then(function() {
     if (typeof renderLocations === 'function') renderLocations();
     if (typeof renderCoachManagement === 'function') renderCoachManagement();
+
+    // For parents: pick the first kid as default current player, render switcher
+    if (state.currentParent) {
+      var myKids = state.players.filter(function(p) { return p.parentId === state.currentParent.id; });
+      if (myKids.length > 0 && !state.currentPlayer) {
+        state.currentPlayer = myKids[0];
+      }
+      if (typeof renderSwitcherPills === 'function') renderSwitcherPills();
+      if (typeof renderPlayerHome === 'function') renderPlayerHome();
+    }
   });
 
   var startPage;
@@ -3191,7 +3201,7 @@ function renderParentAccount() {
           <div style="font-size:13px;font-weight:500;">${p.first} ${p.last}${p.jersey?' <span style="font-size:11px;color:var(--text-secondary);font-weight:400;">#'+p.jersey+'</span>':''}</div>
           <div style="font-size:11px;color:var(--text-secondary);">${p.team} · Class of ${p.grad||'—'}</div>
         </div>
-        ${active ? '<span class="pill pill-green" style="font-size:10px;">Viewing</span>' : `<button class="btn btn-sm" onclick="switchToPlayer('${p.id}')">View</button>`}
+        ${active ? '<span class="pill pill-green" style="font-size:10px;">Viewing</span>' : `<button class="btn btn-sm" onclick="switchPlayer('${p.id}')">View</button>`}
         <button class="btn btn-sm" onclick="openEditChildModal('${p.id}')">Edit</button>
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
