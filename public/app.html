@@ -1594,49 +1594,20 @@ body[data-role="coach"] .mobile-more-btn { display: none !important; }
 
 <script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
 // ===== DATA STORE =====
+// ===== DATA STORE =====
 let state = {
   currentUser: null,
   currentRole: 'coach',
   editingId: null,
   loginRole: 'coach',
-  practices: [
-    { id:'p1', date:'2026-04-22', start:'18:35', end:'19:55', location:'MCP', groups:['T','C','B'], notes:'Bring your ball', checkedIn:['pl1','pl2','pl3'], coachIds:['c1','c2','c3'], coachRsvp:{c1:'yes',c2:'yes'} },
-    { id:'p2', date:'2026-04-22', start:'18:35', end:'19:55', location:'MCP', groups:['3BGals'], notes:'', checkedIn:['pl4'], coachIds:['c1','c2'], coachRsvp:{c2:'yes'} },
-    { id:'p3', date:'2026-04-26', start:'17:50', end:'19:15', location:'KCF', groups:['T','C'], notes:'Altered times', checkedIn:[], coachIds:['c2','c3'], coachRsvp:{} },
-    { id:'p4', date:'2026-04-28', start:'18:00', end:'19:15', location:'MCP', groups:['T','C','B','G','O'], notes:'', checkedIn:['pl1','pl2'], coachIds:['c1','c3'], coachRsvp:{c3:'yes'} },
-    { id:'p5', date:'2026-04-28', start:'19:25', end:'20:40', location:'MCP', groups:['3BHS'], notes:'Varsity reps', checkedIn:['pl3'], coachIds:['c1','c3'], coachRsvp:{} },
-    { id:'p6', date:'2026-03-30', start:'18:35', end:'19:55', location:'MCP', groups:['T','C','B'], notes:'', checkedIn:['pl1','pl2','pl3','pl4'], coachIds:['c1','c2','c3'], coachRsvp:{c1:'yes',c2:'yes',c3:'yes'} },
-    { id:'p7', date:'2026-04-29', start:'18:35', end:'19:55', location:'MCP', groups:['T','C','B'], notes:'Pre-tournament prep', checkedIn:[], coachIds:['c1','c2'], coachRsvp:{} },
-    { id:'p8', date:'2026-04-30', start:'17:50', end:'19:15', location:'KCF', groups:['T','C'], notes:'', checkedIn:[], coachIds:['c2','c3'], coachRsvp:{} },
-    { id:'p9', date:'2026-05-01', start:'18:00', end:'19:15', location:'MCP', groups:['3BHS'], notes:'Final tune-up', checkedIn:[], coachIds:['c1','c3'], coachRsvp:{} },
-  ],
-  tournaments: [
-    { id:'t1', name:'Spring Classic', startDate:'2026-05-02', endDate:'2026-05-03', location:'Bakersfield Sports Village', address:'1234 Sports Dr, Bakersfield, CA', groups:['T','C','B'], notes:'Arrive 30 min before tip-off. Bring 3Ball gear.', result:'', coachIds:['c1','c2','c3'], coachRsvp:{c1:'yes'} },
-    { id:'t2', name:'SoCal Shootout', startDate:'2026-05-16', endDate:'2026-05-17', location:'El Camino College Gym', address:'16007 Crenshaw Blvd, Torrance, CA', groups:['3BHS','3BGals'], notes:'Hotel TBD. Parents coordinate carpools.', result:'', coachIds:['c1','c2','c3'], coachRsvp:{} },
-    { id:'t3', name:'Central Coast Invitational', startDate:'2026-03-15', endDate:'2026-03-15', location:'SLO County Rec Center', address:'990 Palm St, SLO, CA', groups:['T','C','B','G','O'], notes:'Home tournament!', result:'Champions 🏆', coachIds:['c1','c2','c3'], coachRsvp:{c1:'yes',c2:'yes',c3:'yes'} },
-  ],
-  parents: [
-    { id:'par1', first:'Tom', last:'Borrelli', email:'parent@3ball.org', password:'parent', phone:'(805) 555-0101', playerIds:['pl1','pl3'] },
-    { id:'par2', first:'Priya', last:'Kapoor', email:'priya@email.com', password:'parent', phone:'(805) 555-0102', playerIds:['pl2','pl4'] },
-  ],
-  players: [
-    { id:'pl1', first:'Jack', last:'Borrelli', parentId:'par1', team:'C', grad:'2026', waiver:true, paidMonths:['2026-04'] },
-    { id:'pl2', first:'Maya', last:'Kapoor', parentId:'par2', team:'3BGals', grad:'2027', waiver:true, paidMonths:['2026-04'] },
-    { id:'pl3', first:'Ryan', last:'Lopez', parentId:'par1', team:'B', grad:'2028', waiver:true },
-    { id:'pl4', first:'Sofia', last:'Tanaka', parentId:'par2', team:'3BGals', grad:'2027', waiver:true },
-    { id:'pl5', first:'Darius', last:'Williams', parentId:null, team:'T', grad:'2025', waiver:false },
-  ],
-  locations: [
-    { id:'loc1', name:'MCP', address:'Multisport Complex, San Luis Obispo, CA' },
-    { id:'loc2', name:'KCF', address:'Kennedy Club Fitness, San Luis Obispo, CA' },
-  ],
+  practices: [],
+  tournaments: [],
+  parents: [],
+  players: [],
+  locations: [],
   currentParent: null,
   currentCoach: null,
-  coaches: [
-    { id:'c1', first:'Woz', last:'Williams', email:'coach@3ball.org', password:'coach', isAdmin:true, teams:['T','C','B','G','O','3BHS','3BGals'], phone:'(805) 555-0200' },
-    { id:'c2', first:'Sarah', last:'Dunn', email:'sarah@3ball.org', password:'coach2', isAdmin:false, teams:['C','3BGals'], phone:'(805) 555-0201' },
-    { id:'c3', first:'Marcus', last:'Bell', email:'marcus@3ball.org', password:'coach3', isAdmin:false, teams:['T','B','3BHS'], phone:'(805) 555-0202' },
-  ],
+  coaches: [],
   waiver: `3Ball Academy Workout Waiver & Health Acknowledgment\n\nI understand that participation in 3Ball Academy workouts, practices, clinics, and tournaments involves physical activity and carries inherent risks of injury. I voluntarily assume all risks associated with participation.\n\nI confirm that the participant is in good physical health and has no known medical conditions that would prevent safe participation. I agree to notify 3Ball Academy coaches immediately of any injury, illness, or change in health status.\n\nI grant 3Ball Academy permission to seek emergency medical treatment if necessary. I understand that 3Ball Academy, its coaches, and volunteers are not responsible for injury, illness, loss of equipment, or other damages arising from participation.\n\nI agree that the participant will follow all 3Ball Academy rules, team standards, and coach instructions.\n\nThis waiver is valid for the current 3Ball Academy season. By checking the box below, I confirm I have read, understood, and agree to these terms.`
 };
 
@@ -2484,7 +2455,7 @@ function renderReminderPanel() {
   // Group by parent
   const parentMap = {};
   notCheckedIn.forEach(p => {
-    const parent = state.parents ? state.parents.find(par => par.playerIds && par.playerIds.includes(p.id)) : null;
+    const parent = state.parents.find(par => par.id === p.parentId);
     if (parent) {
       if (!parentMap[parent.id]) parentMap[parent.id] = { parent, players: [] };
       parentMap[parent.id].players.push(p);
@@ -2534,7 +2505,7 @@ function sendReminderEmails() {
 
   const parentMap = {};
   notCheckedIn.forEach(p => {
-    const parent = state.parents ? state.parents.find(par => par.playerIds && par.playerIds.includes(p.id)) : null;
+    const parent = state.parents.find(par => par.id === p.parentId);
     if (parent) {
       if (!parentMap[parent.id]) parentMap[parent.id] = { parent, players: [] };
       parentMap[parent.id].players.push(p);
@@ -3206,7 +3177,7 @@ function renderParentAccount() {
   document.getElementById('pa-phone').value = parent.phone || '';
   document.getElementById('pa-pass').value  = '';
 
-  const myPlayers = state.players.filter(p => parent.playerIds.includes(p.id));
+  const myPlayers = state.players.filter(p => p.parentId === parent.id);
   const list = document.getElementById('pa-players-list');
   list.innerHTML = myPlayers.length ? myPlayers.map(p => {
     const active = state.currentUser && state.currentUser.id === p.id;
@@ -3398,7 +3369,7 @@ function renderCoachRoster() {
           <thead><tr><th>Player</th><th>Grad Year</th><th>Parent</th><th>Waiver</th><th>Attendance Rate</th></tr></thead>
           <tbody>
             ${players.map(p => {
-              const parent = state.parents ? state.parents.find(par => par.playerIds && par.playerIds.includes(p.id)) : null;
+              const parent = state.parents.find(par => par.id === p.parentId);
               const rate = getAttendRate(p.id);
               return `<tr>
                 <td>
