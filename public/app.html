@@ -1918,65 +1918,7 @@ function enterApp(role) {
   if (roleEl && state.currentUser) roleEl.textContent = state.currentUser.role;
   if (avEl   && state.currentUser) avEl.textContent   = state.currentUser.initials;
 }
-
-  showPage(startPage);
-
-  // Update sidebar user display
-  var nameEl = document.querySelector('.user-name-text');
-  var roleEl = document.querySelector('.user-role-text');
-  var avEl   = document.querySelector('.user-av');
-  if (nameEl && state.currentUser) nameEl.textContent = state.currentUser.name;
-  if (roleEl && state.currentUser) roleEl.textContent = state.currentUser.role;
-  if (avEl   && state.currentUser) avEl.textContent   = state.currentUser.initials;
-}
-function tryDemoLogin(email, pass, err) {
-  if (loginRole === 'admin') {
-    var c = state.coaches.find(function(c) { return c.email === email && c.password === pass && c.isAdmin; });
-    if (c) {
-      state.currentCoach = c;
-      state.currentUser = {
-        role: 'admin',
-        name: c.first + ' ' + c.last,
-        initials: (c.first[0] + c.last[0]).toUpperCase()
-      };
-      enterApp('admin');
-      return;
-    }
-    err.textContent = 'Invalid admin credentials.';
-    return;
-  }
-
-  if (loginRole === 'coach') {
-    var coach = state.coaches.find(function(c) { return c.email === email && c.password === pass; });
-    if (coach) {
-      state.currentCoach = coach;
-      state.currentUser = {
-        role: coach.isAdmin ? 'admin' : 'coach',
-        name: coach.first + ' ' + coach.last,
-        initials: (coach.first[0] + coach.last[0]).toUpperCase()
-      };
-      enterApp(coach.isAdmin ? 'admin' : 'coach');
-      return;
-    }
-    err.textContent = 'Invalid coach credentials.';
-    return;
-  }
-
-  var parent = state.parents.find(function(p) { return p.email === email && p.password === pass; });
-  if (parent) {
-    state.currentParent = parent;
-    state.currentUser = {
-      role: 'parent',
-      name: parent.first + ' ' + parent.last,
-      initials: (parent.first[0] + parent.last[0]).toUpperCase()
-    };
-    enterApp('parent');
-    return;
-  }
-  err.textContent = 'Invalid email or password.';
-}
-
-function doLogout() {document.body.removeAttribute('data-role');
+  function doLogout() {document.body.removeAttribute('data-role');
   if (sb) {
     try { sb.auth.signOut(); } catch (e) { console.warn('signOut failed', e); }
   }
