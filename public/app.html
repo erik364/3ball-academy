@@ -601,6 +601,14 @@ tbody td { padding: 10px 14px; color: var(--text); vertical-align: middle; }
   table { min-width: 540px; }
   .btn { font-size: 12px; }
 }
+body[data-role] #coach-nav,
+body[data-role] #coach-only-nav,
+body[data-role] #player-nav,
+body[data-role] #player-switcher { display: none !important; }
+body[data-role="admin"] #coach-nav { display: block !important; }
+body[data-role="coach"] #coach-only-nav { display: block !important; }
+body[data-role="parent"] #player-nav { display: block !important; }
+body[data-role="parent"] #player-switcher { display: block !important; }  
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script></head>
 <body>
@@ -1888,42 +1896,28 @@ function doLogin() {
   });
 }
 function enterApp(role) {
-  // Hide login, show app
+  document.body.setAttribute('data-role', role);
   document.getElementById('login-page').style.display = 'none';
   document.getElementById('app').style.display = 'block';
 
-  // Load real data from Supabase
   loadLocations().then(function() {
     if (typeof renderLocations === 'function') renderLocations();
   });
 
-  // Get all three navs and the player switcher by their actual IDs
-  var adminNav      = document.getElementById('coach-nav');         // <- the admin/full nav
-  var coachNav      = document.getElementById('coach-only-nav');    // <- the coach (limited) nav
-  var playerNav     = document.getElementById('player-nav');        // <- the parent/player nav
-  var playerSwitcher = document.getElementById('player-switcher');  // <- player chip (parents only)
-
-  // Hide everything first
-  if (adminNav)       adminNav.style.display = 'none';
-  if (coachNav)       coachNav.style.display = 'none';
-  if (playerNav)      playerNav.style.display = 'none';
-  if (playerSwitcher) playerSwitcher.style.display = 'none';
-
-  // Show the right one for this role
   var startPage;
-  if (role === 'admin') {
-    if (adminNav) adminNav.style.display = '';
-    startPage = 'dashboard';
-  } else if (role === 'coach') {
-    if (coachNav) coachNav.style.display = '';
-    startPage = 'coach-schedule';
-  } else if (role === 'parent') {
-    if (playerNav) playerNav.style.display = '';
-    if (playerSwitcher) playerSwitcher.style.display = '';
-    startPage = 'player-home';
-  } else {
-    startPage = 'player-home';
-  }
+  if (role === 'admin')      startPage = 'dashboard';
+  else if (role === 'coach') startPage = 'coach-schedule';
+  else                       startPage = 'player-home';
+
+  showPage(startPage);
+
+  var nameEl = document.querySelector('.user-name-text');
+  var roleEl = document.querySelector('.user-role-text');
+  var avEl   = document.querySelector('.user-av');
+  if (nameEl && state.currentUser) nameEl.textContent = state.currentUser.name;
+  if (roleEl && state.currentUser) roleEl.textContent = state.currentUser.role;
+  if (avEl   && state.currentUser) avEl.textContent   = state.currentUser.initials;
+}
 
   showPage(startPage);
 
@@ -1982,7 +1976,7 @@ function tryDemoLogin(email, pass, err) {
   err.textContent = 'Invalid email or password.';
 }
 
-function doLogout() {
+function doLogout() {document.body.removeAttribute('data-role');
   if (sb) {
     try { sb.auth.signOut(); } catch (e) { console.warn('signOut failed', e); }
   }
