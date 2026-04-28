@@ -1865,50 +1865,7 @@ function resolveSupabaseUser(user) {
     console.warn('Coach role but no row in coaches table:', email);
     return null;
   }
-
-  if (metaRole === 'parent') {
-    var parent = state.parents.find(function(p) { return p.email.toLowerCase() === email; });
-    if (parent) return { role: 'parent', parent: parent };
-    console.warn('Parent role but no row in parents table:', email);
-    return null;
-  }
-
-  // No metadata role — fall back to email match
-  var coachMatch = state.coaches.find(function(c) { return c.email.toLowerCase() === email; });
-  if (coachMatch) return { role: coachMatch.isAdmin ? 'admin' : 'coach', coach: coachMatch };
-
-  var parentMatch = state.parents.find(function(p) { return p.email.toLowerCase() === email; });
-  if (parentMatch) return { role: 'parent', parent: parentMatch };
-
-  return null;
-}
-
-  if (metaRole === 'parent') {
-    var parent = state.parents.find(function(p) { return p.email.toLowerCase() === email; });
-    if (!parent) {
-      parent = {
-        id: 'sb-' + user.id.slice(0, 8),
-        first: (user.user_metadata && user.user_metadata.first) || email.split('@')[0],
-        last:  (user.user_metadata && user.user_metadata.last)  || '',
-        email: email,
-        password: '',
-        phone: (user.user_metadata && user.user_metadata.phone) || '',
-        playerIds: []
-      };
-      state.parents.push(parent);
-    }
-    return { role: 'parent', parent: parent };
-  }
-
-  var coachMatch = state.coaches.find(function(c) { return c.email.toLowerCase() === email; });
-  if (coachMatch) return { role: coachMatch.isAdmin ? 'admin' : 'coach', coach: coachMatch };
-
-  var parentMatch = state.parents.find(function(p) { return p.email.toLowerCase() === email; });
-  if (parentMatch) return { role: 'parent', parent: parentMatch };
-
-  return null;
-}
-
+  
 function doLogin() {
   var email = document.getElementById('login-email').value.trim();
   var pass  = document.getElementById('login-password').value;
