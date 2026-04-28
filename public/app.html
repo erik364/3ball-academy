@@ -1788,6 +1788,30 @@ function setLoginRole(role, el) {
   if (el) el.classList.add('active');
 }
 // ===== Locations: real Supabase data =====
+// ===== Parents: real Supabase data =====
+async function loadParents() {
+  if (!sb) return;
+  try {
+    const { data, error } = await sb.from('parents').select('*').order('last');
+    if (error) {
+      console.error('loadParents error:', error);
+      return;
+    }
+    state.parents = (data || []).map(function(row) {
+      return {
+        id: row.id,
+        first: row.first,
+        last: row.last,
+        email: row.email,
+        phone: row.phone || '',
+        password: '',
+        playerIds: []
+      };
+    });
+  } catch (e) {
+    console.error('loadParents threw:', e);
+  }
+}
 // ===== Coaches: real Supabase data =====
 async function loadCoaches() {
   if (!sb) return;
@@ -1834,23 +1858,30 @@ function resolveSupabaseUser(user) {
 
   if (metaRole === 'admin' || metaRole === 'coach') {
     var coach = state.coaches.find(function(c) { return c.email.toLowerCase() === email; });
-    if (!coach) {
-      coach = {
-        id: 'sb-' + user.id.slice(0, 8),
-        first: (user.user_metadata && user.user_metadata.first) || email.split('@')[0],
-        last:  (user.user_metadata && user.user_metadata.last)  || '',
-        email: email,
-        password: '',
-        isAdmin: metaRole === 'admin',
-        teams: (user.user_metadata && user.user_metadata.teams) || ['T','C','B','G','O','3BHS','3BGals'],
-        phone: (user.user_metadata && user.user_metadata.phone) || ''
-      };
-      state.coaches.push(coach);
-    } else {
+    if (coach) {
       coach.isAdmin = coach.isAdmin || metaRole === 'admin';
+      return { role: metaRole, coach: coach };
     }
-    return { role: metaRole, coach: coach };
+    console.warn('Coach role but no row in coaches table:', email);
+    return null;
   }
+
+  if (metaRole === 'parent') {
+    var parent = state.parents.find(function(p) { return p.email.toLowerCase() === email; });
+    if (parent) return { role: 'parent', parent: parent };
+    console.warn('Parent role but no row in parents table:', email);
+    return null;
+  }
+
+  // No metadata role — fall back to email match
+  var coachMatch = state.coaches.find(function(c) { return c.email.toLowerCase() === email; });
+  if (coachMatch) return { role: coachMatch.isAdmin ? 'admin' : 'coach', coach: coachMatch };
+
+  var parentMatch = state.parents.find(function(p) { return p.email.toLowerCase() === email; });
+  if (parentMatch) return { role: 'parent', parent: parentMatch };
+
+  return null;
+}
 
   if (metaRole === 'parent') {
     var parent = state.parents.find(function(p) { return p.email.toLowerCase() === email; });
@@ -1899,29 +1930,31 @@ function doLogin() {
       err.textContent = 'Invalid email or password.';
       return;
     }
-    var resolved = resolveSupabaseUser(result.data.user);
-    if (!resolved) {
-      err.textContent = 'Account exists but no role is assigned. Contact your admin.';
-      sb.auth.signOut();
-      return;
-    }
-    if (resolved.role === 'admin' || resolved.role === 'coach') {
-      state.currentCoach = resolved.coach;
-      state.currentUser = {
-        role: resolved.role,
-        name: resolved.coach.first + ' ' + resolved.coach.last,
-        initials: ((resolved.coach.first[0] || '?') + (resolved.coach.last[0] || '')).toUpperCase()
-      };
-      enterApp(resolved.role);
-    } else if (resolved.role === 'parent') {
-      state.currentParent = resolved.parent;
-      state.currentUser = {
-        role: 'parent',
-        name: resolved.parent.first + ' ' + resolved.parent.last,
-        initials: ((resolved.parent.first[0] || '?') + (resolved.parent.last[0] || '')).toUpperCase()
-      };
-      enterApp('parent');
-    }
+   Promise.all([loadCoaches(), loadParents()]).then(function() {
+      var resolved = resolveSupabaseUser(result.data.user);
+      if (!resolved) {
+        err.textContent = 'Account exists but no role is assigned. Contact your admin.';
+        sb.auth.signOut();
+        return;
+      }
+      if (resolved.role === 'admin' || resolved.role === 'coach') {
+        state.currentCoach = resolved.coach;
+        state.currentUser = {
+          role: resolved.role,
+          name: resolved.coach.first + ' ' + resolved.coach.last,
+          initials: ((resolved.coach.first[0] || '?') + (resolved.coach.last[0] || '')).toUpperCase()
+        };
+        enterApp(resolved.role);
+      } else if (resolved.role === 'parent') {
+        state.currentParent = resolved.parent;
+        state.currentUser = {
+          role: 'parent',
+          name: resolved.parent.first + ' ' + resolved.parent.last,
+          initials: ((resolved.parent.first[0] || '?') + (resolved.parent.last[0] || '')).toUpperCase()
+        };
+        enterApp('parent');
+      }
+    });
   }).catch(function(e) {
     console.error('Auth error:', e);
     err.textContent = 'Sign in failed. Please try again.';
@@ -1932,7 +1965,7 @@ function enterApp(role) {
   document.getElementById('login-page').style.display = 'none';
   document.getElementById('app').style.display = 'block';
 
-  Promise.all([loadLocations(), loadCoaches()]).then(function() {
+Promise.all([loadLocations(), loadCoaches(), loadParents()]).then(function() {
     if (typeof renderLocations === 'function') renderLocations();
     if (typeof renderCoachManagement === 'function') renderCoachManagement();
   });
@@ -1971,25 +2004,27 @@ function enterApp(role) {
   sb.auth.getSession().then(function(result) {
     var session = result.data && result.data.session;
     if (!session || !session.user) return;
-    var resolved = resolveSupabaseUser(session.user);
-    if (!resolved) return;
-    if (resolved.role === 'admin' || resolved.role === 'coach') {
-      state.currentCoach = resolved.coach;
-      state.currentUser = {
-        role: resolved.role,
-        name: resolved.coach.first + ' ' + resolved.coach.last,
-        initials: ((resolved.coach.first[0] || '?') + (resolved.coach.last[0] || '')).toUpperCase()
-      };
-      enterApp(resolved.role);
-    } else if (resolved.role === 'parent') {
-      state.currentParent = resolved.parent;
-      state.currentUser = {
-        role: 'parent',
-        name: resolved.parent.first + ' ' + resolved.parent.last,
-        initials: ((resolved.parent.first[0] || '?') + (resolved.parent.last[0] || '')).toUpperCase()
-      };
-      enterApp('parent');
-    }
+    Promise.all([loadCoaches(), loadParents()]).then(function() {
+        var resolved = resolveSupabaseUser(session.user);
+        if (!resolved) return;
+        if (resolved.role === 'admin' || resolved.role === 'coach') {
+          state.currentCoach = resolved.coach;
+          state.currentUser = {
+            role: resolved.role,
+            name: resolved.coach.first + ' ' + resolved.coach.last,
+            initials: ((resolved.coach.first[0] || '?') + (resolved.coach.last[0] || '')).toUpperCase()
+          };
+          enterApp(resolved.role);
+        } else if (resolved.role === 'parent') {
+          state.currentParent = resolved.parent;
+          state.currentUser = {
+            role: 'parent',
+            name: resolved.parent.first + ' ' + resolved.parent.last,
+            initials: ((resolved.parent.first[0] || '?') + (resolved.parent.last[0] || '')).toUpperCase()
+          };
+          enterApp('parent');
+        }
+      });
   }).catch(function(e) {
     console.warn('Session restore failed', e);
   });
