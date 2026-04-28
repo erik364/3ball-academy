@@ -2790,18 +2790,44 @@ function renderLocations() {
 }
 
 function openLocationModal() { document.getElementById('loc-name').value=''; document.getElementById('loc-address').value=''; openModal('location-modal'); }
-function saveLocation() {
+async function saveLocation() {
   const name = document.getElementById('loc-name').value.trim();
-  if (!name) { alert('Name required.'); return; }
-  state.locations.push({ id: uid(), name, address: document.getElementById('loc-address').value });
+  const addr = document.getElementById('loc-address').value.trim();
+  if (!name) { toast('Please enter a location name'); return; }
+
+  if (!sb) { toast('Auth not configured'); return; }
+
+  const { data, error } = await sb.from('locations')
+    .insert({ name: name, address: addr || null })
+    .select()
+    .single();
+
+  if (error) {
+    console.error('saveLocation error:', error);
+    toast(error.code === '42501' ? 'Only admins can add locations' : 'Failed to save: ' + error.message);
+    return;
+  }
+
+  state.locations.push({ id: data.id, name: data.name, address: data.address || '' });
   closeModal('location-modal');
   renderLocations();
-  toast('Location added!');
+  toast('Location saved!');
 }
-function deleteLocation(id) {
-  if (!confirm('Remove this location?')) return;
-  state.locations = state.locations.filter(l=>l.id!==id);
+
+async function deleteLocation(id) {
+  if (!confirm('Delete this location?')) return;
+  if (!sb) { toast('Auth not configured'); return; }
+
+  const { error } = await sb.from('locations').delete().eq('id', id);
+  if (error) {
+    console.error('deleteLocation error:', error);
+    toast(error.code === '42501' ? 'Only admins can delete locations' : 'Failed to delete: ' + error.message);
+    return;
+  }
+
+  state.locations = state.locations.filter(function(l) { return l.id !== id; });
   renderLocations();
+  toast('Location deleted');
 }
 function saveWaiver() { state.waiver = document.getElementById('waiver-editor').value; toast('Waiver saved!'); }
 function saveAcademyInfo() { toast('Academy info saved!'); }
