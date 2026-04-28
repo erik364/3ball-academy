@@ -3395,17 +3395,16 @@ function openCoachModal(id) {
 }
 
 async function saveCoach() {
-  const id = document.getElementById('coach-id').value;
-  if (!id) {
+  if (!editingCoachId) {
     toast('To add a new coach, create their auth user in Supabase first');
     return;
   }
-  const first = document.getElementById('coach-first').value.trim();
-  const last  = document.getElementById('coach-last').value.trim();
-  const email = document.getElementById('coach-email').value.trim();
-  const phone = document.getElementById('coach-phone').value.trim();
-  const isAdmin = document.getElementById('coach-admin').checked;
-  const teams = Array.from(document.querySelectorAll('.coach-team-cb:checked')).map(function(cb) { return cb.value; });
+  const first = document.getElementById('cm-first').value.trim();
+  const last  = document.getElementById('cm-last').value.trim();
+  const email = document.getElementById('cm-email').value.trim();
+  const phone = document.getElementById('cm-phone').value.trim();
+  const isAdmin = document.getElementById('cm-admin').checked;
+  const teams = Array.from(document.querySelectorAll('.cm-team-cb:checked')).map(function(cb) { return cb.value; });
 
   if (!first || !last || !email) { toast('Name and email are required'); return; }
   if (!sb) { toast('Auth not configured'); return; }
@@ -3415,7 +3414,7 @@ async function saveCoach() {
       first: first, last: last, email: email, phone: phone || null,
       is_admin: isAdmin, teams: teams
     })
-    .eq('id', id);
+    .eq('id', editingCoachId);
 
   if (error) {
     console.error('saveCoach error:', error);
