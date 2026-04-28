@@ -1788,7 +1788,32 @@ function setLoginRole(role, el) {
   if (el) el.classList.add('active');
 }
 // ===== Locations: real Supabase data =====
-async function loadLocations() {
+// ===== Coaches: real Supabase data =====
+async function loadCoaches() {
+  if (!sb) return;
+  try {
+    const { data, error } = await sb.from('coaches').select('*').order('last');
+    if (error) {
+      console.error('loadCoaches error:', error);
+      return;
+    }
+    state.coaches = (data || []).map(function(row) {
+      return {
+        id: row.id,
+        first: row.first,
+        last: row.last,
+        email: row.email,
+        phone: row.phone || '',
+        password: '',
+        isAdmin: !!row.is_admin,
+        teams: row.teams || []
+      };
+    });
+  } catch (e) {
+    console.error('loadCoaches threw:', e);
+  }
+}
+  async function loadLocations() {
   if (!sb) return;
   try {
     const { data, error } = await sb.from('locations').select('*').order('name');
