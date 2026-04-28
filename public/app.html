@@ -1889,12 +1889,13 @@ function doLogin() {
 }
 function enterApp(role) {
   // Hide login, show app
+  document.getElementById('login-page').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+
   // Load real data from Supabase
   loadLocations().then(function() {
     if (typeof renderLocations === 'function') renderLocations();
   });
-  document.getElementById('login-page').style.display = 'none';
-  document.getElementById('app').style.display = 'block';
 
   // Get all three navs and the player switcher by their actual IDs
   var adminNav      = document.getElementById('coach-nav');         // <- the admin/full nav
