@@ -1,6 +1,26 @@
 <!DOCTYPE html>
 <html lang="en" style="-webkit-tap-highlight-color:transparent;">
 <head>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+  (function () {
+    const params = new URLSearchParams(window.location.search);
+    const url = params.get('supabaseUrl');
+    const key = params.get('supabaseAnonKey');
+    if (!url || !key) {
+      console.error('[3Ball] Missing Supabase config in URL params');
+      window.sb = null;
+      return;
+    }
+    window.sb = supabase.createClient(url, key, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+      }
+    });
+  })();
+</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>3Ball Academy</title>
