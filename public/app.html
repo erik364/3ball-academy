@@ -3126,11 +3126,11 @@ function renderPdOverview(p, role) {
   if (p.jersey) rows.push({ label: 'Jersey', value: '#' + p.jersey });
   rows.push({ label: 'Waiver', value: p.waiver ? 'Signed ✓' : 'Pending' });
   if (role === 'admin' || role === 'coach') {
-    rows.push({ label: 'Parent / Guardian', value: parent ? (parent.first + ' ' + parent.last) : 'Unassigned' });
-    if (parent && parent.email) rows.push({ label: 'Parent email', value: parent.email });
-    if (parent && parent.phone) rows.push({ label: 'Parent phone', value: parent.phone });
-    rows.push({ label: 'Notes', value: noteCount + ' note' + (noteCount === 1 ? '' : 's') });
-  }
+  rows.push({ label: 'Parent / Guardian', value: parent ? (parent.first + ' ' + parent.last) : 'Unassigned' });
+  if (parent && parent.email) rows.push({ label: 'Parent email', value: parent.email });
+  if (parent && parent.phone) rows.push({ label: 'Parent phone', value: parent.phone });
+  rows.push({ label: 'Notes', value: noteCount + ' note' + (noteCount === 1 ? '' : 's') });
+}
   return rows.map(function(r) {
     return '<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--gray-border);"><div style="font-size:13px;color:var(--text-secondary);">' + r.label + '</div><div style="font-size:13px;font-weight:500;text-align:right;">' + r.value + '</div></div>';
   }).join('');
