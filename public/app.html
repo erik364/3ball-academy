@@ -1759,7 +1759,84 @@ function setLoginRole(role, el) {
   if (el) el.classList.add('active');
 }
 // ===== Locations: real Supabase data =====
-// ===== Players: real Supabase data =====
+// ===== Player notes: real Supabase data (admin & coaches only) =====
+async function loadPlayerNotes() {
+  if (!sb) return;
+  // Only fetch if user is admin or coach — RLS will return [] for parents anyway
+  const role = state.currentUser && state.currentUser.role;
+  if (role !== 'admin' && role !== 'coach') {
+    state.playerNotes = [];
+    return;
+  }
+  try {
+    const { data, error } = await sb.from('player_notes').select('*').order('created_at', { ascending: false });
+    if (error) {
+      console.error('loadPlayerNotes error:', error);
+      return;
+    }
+    state.playerNotes = (data || []).map(function(row) {
+      return {
+        id: row.id,
+        playerId: row.player_id,
+        authorId: row.author_id,
+        authorName: row.author_name,
+        body: row.body,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at
+      };
+    });
+  } catch (e) {
+    console.error('loadPlayerNotes threw:', e);
+  }
+}
+
+// Save a new note for a player
+async function addPlayerNote(playerId, body) {
+  if (!sb || !state.currentUser) { toast('Not authorized'); return null; }
+  const text = (body || '').trim();
+  if (!text) { toast('Note cannot be empty'); return null; }
+
+  // Get the actual auth user to use as author_id
+  const { data: sess } = await sb.auth.getSession();
+  if (!sess.session) { toast('Session expired, please sign in again'); return null; }
+  const authorId = sess.session.user.id;
+  const authorName = state.currentCoach
+    ? state.currentCoach.first + ' ' + state.currentCoach.last
+    : (state.currentUser.name || 'Coach');
+
+  const { data, error } = await sb.from('player_notes').insert({
+    player_id: playerId,
+    author_id: authorId,
+    author_name: authorName,
+    body: text
+  }).select().single();
+
+  if (error) {
+    console.error('addPlayerNote error:', error);
+    toast(error.code === '42501' ? 'Not authorized to note on this player' : 'Failed to save note: ' + error.message);
+    return null;
+  }
+  await loadPlayerNotes();
+  return data;
+}
+
+// Delete a note (only your own, unless admin)
+async function deletePlayerNote(noteId) {
+  if (!confirm('Delete this note?')) return false;
+  if (!sb) return false;
+  const { error } = await sb.from('player_notes').delete().eq('id', noteId);
+  if (error) {
+    console.error('deletePlayerNote error:', error);
+    toast(error.code === '42501' ? 'You can only delete your own notes' : 'Failed to delete: ' + error.message);
+    return false;
+  }
+  await loadPlayerNotes();
+  return true;
+}
+
+// Initialize state slot
+if (typeof state.playerNotes === 'undefined') state.playerNotes = [];
+  // ===== Players: real Supabase data =====
 async function loadPlayers() {
   if (!sb) return;
   try {
@@ -1901,7 +1978,7 @@ function doLogin() {
       err.textContent = 'Invalid email or password.';
       return;
     }
-   Promise.all([loadCoaches(), loadParents(), loadPlayers()]).then(function() {
+   Promise.all([loadCoaches(), loadParents(), loadPlayers(), loadPlayerNotes()]).then(function() {
       var resolved = resolveSupabaseUser(result.data.user);
       if (!resolved) {
         err.textContent = 'Account exists but no role is assigned. Contact your admin.';
@@ -1936,7 +2013,7 @@ function enterApp(role) {
   document.getElementById('login-page').style.display = 'none';
   document.getElementById('app').style.display = 'block';
 
-Promise.all([loadLocations(), loadCoaches(), loadParents(), loadPlayers()]).then(function() {
+Promise.all([loadLocations(), loadCoaches(), loadParents(), loadPlayers(), loadPlayerNotes()]).then(function() {
     if (typeof renderLocations === 'function') renderLocations();
     if (typeof renderCoachManagement === 'function') renderCoachManagement();
 
@@ -2002,7 +2079,7 @@ if (role === 'parent' && state.currentParent) {
   sb.auth.getSession().then(function(result) {
     var session = result.data && result.data.session;
     if (!session || !session.user) return;
-    Promise.all([loadCoaches(), loadParents(), loadPlayers()]).then(function() {
+    Promise.all([loadCoaches(), loadParents(), loadPlayers(), loadPlayerNotes()]).then(function() {
         var resolved = resolveSupabaseUser(session.user);
         if (!resolved) return;
         if (resolved.role === 'admin' || resolved.role === 'coach') {
