@@ -2908,8 +2908,39 @@ function buildRosterRow(p, includeAdminCols) {
     + '<td>' + (p.grad || '—') + '</td>'
     + '<td><div style="font-size:13px;">' + parentName + '</div><div style="font-size:11px;color:var(--text-secondary);">' + parentPhone + '</div></td>'
     + '<td>' + (p.waiver ? '<span class="pill pill-green">Agreed ✓</span>' : '<span class="pill pill-red">Pending</span>') + '</td>'
-    + '<td><span class="pill ' + rateClass + '">' + rateStr + '</span></
+    + '<td><span class="pill ' + rateClass + '">' + rateStr + '</span></td>';
 
+  if (includeAdminCols) {
+    const curMonth = new Date().toISOString().slice(0, 7);
+    const paid = (p.paidMonths || []).includes(curMonth);
+    const sortedMonths = (p.paidMonths || []).slice().sort();
+    const lastPaid = sortedMonths.length ? sortedMonths[sortedMonths.length - 1] : null;
+    const monthOpts = [];
+    const now2 = new Date();
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(now2.getFullYear(), now2.getMonth() - i, 1);
+      const ym = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+      monthOpts.push(ym);
+    }
+    const selectHtml = '<select onchange="setLastPaid(\'' + p.id + '\',this.value)" style="font-size:12px;padding:3px 6px;border-radius:6px;border:1px solid var(--gray-border);color:var(--text);background:var(--white);cursor:pointer;">'
+      + '<option value="">— not paid —</option>'
+      + monthOpts.map(ym => '<option value="' + ym + '"' + (lastPaid === ym ? ' selected' : '') + '>' + fmtMonthLabel(ym) + '</option>').join('')
+      + '</select>';
+    row += '<td>' + selectHtml + '</td>'
+      + '<td style="text-align:center;">'
+      + '<div style="width:28px;height:28px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;'
+      + (paid ? 'background:var(--teal);color:#fff;' : 'background:#FEEBEB;color:#C0392B;border:2px solid #F5B7B7;')
+      + '">' + (paid ? '✓' : '✗') + '</div>'
+      + '</td>'
+      + '<td style="text-align:right;">'
+      + '<button class="btn btn-sm" onclick="editPlayer(\'' + p.id + '\')">Edit</button>'
+      + '<button class="btn btn-sm btn-danger" style="margin-left:4px;" onclick="deletePlayer(\'' + p.id + '\')">Remove</button>'
+      + '</td>';
+  }
+
+  row += '</tr>';
+  return row;
+}
 function openPlayerModal(id) {
   state.editingId = id || null;
   document.getElementById('player-modal-title').textContent = id ? 'Edit Player' : 'Add Player';
