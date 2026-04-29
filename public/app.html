@@ -1981,6 +1981,7 @@ if (role === 'parent' && state.currentParent) {
   if (roleEl) roleEl.textContent = state.currentUser.role;
   if (avEl)   avEl.textContent   = state.currentUser.initials;
 }
+  }  
   function doLogout() {document.body.removeAttribute('data-role');
   if (sb) {
     try { sb.auth.signOut(); } catch (e) { console.warn('signOut failed', e); }
