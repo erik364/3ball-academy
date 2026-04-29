@@ -2886,11 +2886,97 @@ function renderAttendanceReport() {
   setTimeout(renderAttendanceSummary, 0);
 }
 
+// ===== Player detail modal (admin/coach/parent — different views per role) =====
+let pdState = { playerId: null, currentTab: 'overview' };
+
 function showPlayerDetail(id) {
-  const p = state.players.find(x=>x.id===id);
-  const sessions = state.practices.filter(s=>isPast(s.date));
-  const yesCount = sessions.filter(s => (s.rsvp || {})[id] === 'yes').length;
-  alert(`${p.first} ${p.last}\nTeam: ${p.team}\nGoing: ${yesCount} / ${sessions.length} sessions\nRate: ${getAttendRate(id)}%`);
+  openPlayerDetail(id);
+}
+
+function openPlayerDetail(playerId) {
+  const p = state.players.find(x => x.id === playerId);
+  if (!p) { toast('Player not found'); return; }
+
+  pdState.playerId = playerId;
+  pdState.currentTab = 'overview';
+
+  document.getElementById('pd-avatar').textContent = ((p.first[0] || '?') + (p.last[0] || '')).toUpperCase();
+  document.getElementById('pd-avatar').className = 'av av-' + teamColor(p.team);
+  document.getElementById('pd-name').textContent = p.first + ' ' + p.last;
+  const metaParts = [];
+  if (p.team) metaParts.push(p.team);
+  if (p.grad) metaParts.push('Class of ' + p.grad);
+  if (p.jersey) metaParts.push('#' + p.jersey);
+  document.getElementById('pd-meta').textContent = metaParts.join(' · ') || '—';
+
+  renderPlayerDetailTabs();
+  renderPlayerDetailContent();
+  openModal('player-detail-modal');
+}
+
+function getPlayerDetailTabsForRole() {
+  const role = state.currentUser && state.currentUser.role;
+  if (role === 'admin') return ['overview', 'notes', 'attendance', 'rsvps', 'payments', 'edit'];
+  if (role === 'coach') return ['overview', 'notes', 'attendance', 'rsvps'];
+  return ['overview', 'attendance', 'rsvps', 'payments', 'edit'];
+}
+
+function renderPlayerDetailTabs() {
+  const tabs = getPlayerDetailTabsForRole();
+  const labels = { overview: 'Overview', notes: 'Notes', attendance: 'Attendance', rsvps: 'RSVPs', payments: 'Payments', edit: 'Edit' };
+  document.getElementById('pd-tabs').innerHTML = tabs.map(function(t) {
+    const isActive = t === pdState.currentTab;
+    return '<button onclick="setPlayerDetailTab(\'' + t + '\')" style="padding:11px 14px;border:none;background:transparent;cursor:pointer;font-family:inherit;font-size:13px;border-bottom:2px solid ' + (isActive ? 'var(--orange)' : 'transparent') + ';color:' + (isActive ? 'var(--text)' : 'var(--text-secondary)') + ';font-weight:' + (isActive ? '600' : '400') + ';white-space:nowrap;flex-shrink:0;">' + labels[t] + '</button>';
+  }).join('');
+}
+
+function setPlayerDetailTab(tabName) {
+  pdState.currentTab = tabName;
+  renderPlayerDetailTabs();
+  renderPlayerDetailContent();
+}
+
+function renderPlayerDetailContent() {
+  const p = state.players.find(x => x.id === pdState.playerId);
+  if (!p) return;
+  const role = state.currentUser && state.currentUser.role;
+  const container = document.getElementById('pd-content');
+  const tab = pdState.currentTab;
+
+  if (tab === 'overview') {
+    container.innerHTML = renderPdOverview(p, role);
+  } else if (tab === 'notes') {
+    container.innerHTML = '<div style="text-align:center;color:var(--text-secondary);padding:30px 0;">Notes coming in next update.</div>';
+  } else if (tab === 'attendance') {
+    container.innerHTML = '<div style="text-align:center;color:var(--text-secondary);padding:30px 0;">Attendance history will appear here once practices are migrated (Step 8).</div>';
+  } else if (tab === 'rsvps') {
+    container.innerHTML = '<div style="text-align:center;color:var(--text-secondary);padding:30px 0;">RSVP history will appear here once practices are migrated (Step 7).</div>';
+  } else if (tab === 'payments') {
+    container.innerHTML = '<div style="text-align:center;color:var(--text-secondary);padding:30px 0;">Payment history will appear here once payments are migrated (Step 10).</div>';
+  } else if (tab === 'edit') {
+    container.innerHTML = '<div style="text-align:center;color:var(--text-secondary);padding:30px 0;">Edit form coming in next update.</div>';
+  }
+}
+
+function renderPdOverview(p, role) {
+  const rate = (typeof getAttendRate === 'function') ? getAttendRate(p.id) : null;
+  const parent = state.parents.find(par => par.id === p.parentId);
+  const noteCount = (state.playerNotes || []).filter(n => n.playerId === p.id).length;
+  const rows = [];
+  if (rate !== null) rows.push({ label: 'Attendance rate', value: rate + '%' });
+  rows.push({ label: 'Team', value: p.team || '—' });
+  if (p.grad) rows.push({ label: 'Graduation year', value: p.grad });
+  if (p.jersey) rows.push({ label: 'Jersey', value: '#' + p.jersey });
+  rows.push({ label: 'Waiver', value: p.waiver ? 'Signed ✓' : 'Pending' });
+  if (role === 'admin' || role === 'coach') {
+    rows.push({ label: 'Parent / Guardian', value: parent ? (parent.first + ' ' + parent.last) : 'Unassigned' });
+    if (parent && parent.email) rows.push({ label: 'Parent email', value: parent.email });
+    if (parent && parent.phone) rows.push({ label: 'Parent phone', value: parent.phone });
+    rows.push({ label: 'Notes', value: noteCount + ' note' + (noteCount === 1 ? '' : 's') });
+  }
+  return rows.map(function(r) {
+    return '<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--gray-border);"><div style="font-size:13px;color:var(--text-secondary);">' + r.label + '</div><div style="font-size:13px;font-weight:500;text-align:right;">' + r.value + '</div></div>';
+  }).join('');
 }
 
 // ===== SETTINGS =====
@@ -4193,6 +4279,21 @@ window.addEventListener('keydown', e => {
   </div>
 
 
+  <!-- Player Detail Modal -->
+  <div class="modal-overlay" id="player-detail-modal">
+    <div class="modal" style="max-width:720px;width:96vw;max-height:92vh;display:flex;flex-direction:column;">
+      <div id="pd-header" style="padding:18px 20px 12px;border-bottom:1px solid var(--gray-border);display:flex;align-items:center;gap:14px;">
+        <div id="pd-avatar" class="av" style="width:52px;height:52px;font-size:18px;flex-shrink:0;">??</div>
+        <div style="flex:1;min-width:0;">
+          <div id="pd-name" style="font-size:18px;font-weight:700;line-height:1.2;">Player Name</div>
+          <div id="pd-meta" style="font-size:12px;color:var(--text-secondary);margin-top:3px;">Team · Class of 20XX</div>
+        </div>
+        <button class="modal-close" onclick="closeModal('player-detail-modal')" style="margin-left:auto;">×</button>
+      </div>
+      <div id="pd-tabs" style="display:flex;gap:0;border-bottom:1px solid var(--gray-border);overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch;padding:0 8px;"></div>
+      <div id="pd-content" style="padding:18px 20px;overflow-y:auto;flex:1;"></div>
+    </div>
+  </div>
   <!-- Mobile More Menu -->
   <div class="modal-overlay" id="mobile-more-modal">
     <div class="modal" style="max-width:340px;">
