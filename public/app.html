@@ -2731,58 +2731,184 @@ function toggleCoachCheckin(sessionId, type, coachId) {
 
 // ===== ROSTER =====
 function renderRoster() {
-  const teamFilter = document.getElementById('roster-filter-team').value;
-  const search = document.getElementById('roster-search').value.toLowerCase();
-  let players = state.players;
-  if (teamFilter) players = players.filter(p=>p.team===teamFilter);
-  if (search) players = players.filter(p=>(p.first+' '+p.last).toLowerCase().includes(search));
+  renderRosterTable({
+    containerId: 'roster-table',
+    teamFilter: document.getElementById('roster-filter-team').value,
+    search: document.getElementById('roster-search').value.toLowerCase(),
+    role: 'admin'
+  });
+}
 
-  const tb = document.getElementById('roster-table');
-  if (!players.length) { tb.innerHTML = `<tr><td colspan="10"><div class="empty"><div class="empty-icon">👥</div><div class="empty-text">No players found</div></div></td></tr>`; return; }
+function renderCoachRoster() {
+  const coach = state.currentCoach;
+  if (!coach) return;
+  renderRosterTable({
+    containerId: 'coach-roster-content',
+    teamFilter: '',
+    search: '',
+    role: 'coach',
+    teamScope: coach.teams || []
+  });
+}
 
-  const curMonth = new Date().toISOString().slice(0,7);
-  tb.innerHTML = players.map(p => {
-    const rate = getAttendRate(p.id);
-    const rateStr = rate !== null ? rate + '%' : '—';
-    const rateClass = rate === null ? '' : rate >= 75 ? 'pill-green' : rate >= 50 ? 'pill-amber' : 'pill-red';
-    const paid = (p.paidMonths||[]).includes(curMonth);
-    const sortedMonths = (p.paidMonths||[]).slice().sort();
-    const lastPaid = sortedMonths.length ? sortedMonths[sortedMonths.length-1] : null;
-    const lastPaidLabel = lastPaid ? fmtMonthLabel(lastPaid) : '—';
-    // months dropdown: last 12 months + current
+function renderRosterTable(opts) {
+  const tb = document.getElementById(opts.containerId);
+  if (!tb) return;
+  const isAdmin = opts.role === 'admin';
+
+  let players = state.players.slice();
+  if (opts.teamFilter) players = players.filter(p => p.team === opts.teamFilter);
+  if (opts.search) players = players.filter(p => (p.first + ' ' + p.last).toLowerCase().includes(opts.search));
+  if (opts.teamScope) players = players.filter(p => opts.teamScope.includes(p.team));
+  // Sort by team then last name for predictability
+  players.sort((a, b) => (a.team || '').localeCompare(b.team || '') || a.last.localeCompare(b.last));
+
+  // For the coach roster, the container is a div (not a tbody) — so we render a full table
+  if (opts.role === 'coach') {
+    if (!players.length) {
+      tb.innerHTML = '<div class="empty"><div class="empty-icon">👥</div><div class="empty-text">No players on your teams yet</div></div>';
+      return;
+    }
+    tb.innerHTML = '<div class="panel"><div class="table-wrap"><table>'
+      + '<thead><tr><th>Player</th><th>#</th><th>Team</th><th>Grad Year</th><th>Parent / Guardian</th><th>Waiver</th><th>Attendance Rate</th></tr></thead>'
+      + '<tbody>' + players.map(p => buildRosterRow(p, false)).join('') + '</tbody>'
+      + '</table></div></div>';
+    return;
+  }
+
+  // Admin path: container IS a tbody
+  if (!players.length) {
+    tb.innerHTML = '<tr><td colspan="10"><div class="empty"><div class="empty-icon">👥</div><div class="empty-text">No players found</div></div></td></tr>';
+    return;
+  }
+  tb.innerHTML = players.map(p => buildRosterRow(p, true)).join('');
+}
+
+function buildRosterRow(p, includeAdminCols) {
+  const rate = getAttendRate(p.id);
+  const rateStr = rate !== null ? rate + '%' : '—';
+  const rateClass = rate === null ? '' : rate >= 75 ? 'pill-green' : rate >= 50 ? 'pill-amber' : 'pill-red';
+  const parent = state.parents.find(par => par.id === p.parentId);
+  const parentName = parent ? (parent.first + ' ' + parent.last) : '—';
+  const parentEmail = parent ? (parent.email || '') : '';
+  const parentPhone = parent ? (parent.phone || '') : '';
+
+  let row = '<tr>'
+    + '<td><div style="display:flex;align-items:center;gap:9px;">'
+    + '<div class="av av-' + teamColor(p.team) + '">' + initials(p) + '</div>'
+    + '<div><div style="font-weight:500;cursor:pointer;color:var(--green-dark);text-decoration:underline;text-underline-offset:2px;" onclick="openPlayerDetail(\'' + p.id + '\')">' + p.first + ' ' + p.last + '</div>'
+    + '<div style="font-size:11px;color:var(--text-secondary);">' + parentEmail + '</div>'
+    + '</div></div></td>';
+
+  // Jersey: editable for admin, read-only for coach
+  if (includeAdminCols) {
+    row += '<td><input type="text" value="' + (p.jersey || '') + '" placeholder="—" onchange="setJersey(\'' + p.id + '\',this.value)" style="width:42px;font-size:12px;padding:3px 5px;border-radius:5px;border:1px solid var(--gray-border);text-align:center;font-weight:600;" maxlength="3"></td>';
+  } else {
+    row += '<td style="text-align:center;font-weight:600;">' + (p.jersey || '—') + '</td>';
+  }
+
+  row += '<td><span class="team-tag" style="background:var(--orange-light);color:var(--orange-mid);">' + (p.team || '—') + '</span></td>'
+    + '<td>' + (p.grad || '—') + '</td>'
+    + '<td><div style="font-size:13px;">' + parentName + '</div><div style="font-size:11px;color:var(--text-secondary);">' + parentPhone + '</div></td>'
+    + '<td>' + (p.waiver ? '<span class="pill pill-green">Agreed ✓</span>' : '<span class="pill pill-red">Pending</span>') + '</td>'
+    + '<td><span class="pill ' + rateClass + '">' + rateStr + '</span></td>';
+
+  if (includeAdminCols) {
+    // Payment columns (admin only)
+    const curMonth = new Date().toISOString().slice(0, 7);
+    const paid = (p.paidMonths || []).includes(curMonth);
+    const sortedMonths = (p.paidMonths || []).slice().sort();
+    const lastPaid = sortedMonths.length ? sortedMonths[sortedMonths.length - 1] : null;
     const monthOpts = [];
     const now2 = new Date();
-    for (let i=11; i>=0; i--) {
-      const d = new Date(now2.getFullYear(), now2.getMonth()-i, 1);
-      const ym = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(now2.getFullYear(), now2.getMonth() - i, 1);
+      const ym = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
       monthOpts.push(ym);
     }
-    const selectHtml = '<select onchange="setLastPaid(\''+p.id+'\',this.value)" style="font-size:12px;padding:3px 6px;border-radius:6px;border:1px solid var(--gray-border);color:var(--text);background:var(--white);cursor:pointer;">'
+    const selectHtml = '<select onchange="setLastPaid(\'' + p.id + '\',this.value)" style="font-size:12px;padding:3px 6px;border-radius:6px;border:1px solid var(--gray-border);color:var(--text);background:var(--white);cursor:pointer;">'
       + '<option value="">— not paid —</option>'
-      + monthOpts.map(ym=>'<option value="'+ym+'"'+(lastPaid===ym?' selected':'')+'>'+fmtMonthLabel(ym)+'</option>').join('')
+      + monthOpts.map(ym => '<option value="' + ym + '"' + (lastPaid === ym ? ' selected' : '') + '>' + fmtMonthLabel(ym) + '</option>').join('')
       + '</select>';
-    return '<tr>'
-      + '<td><div style="display:flex;align-items:center;gap:9px;"><div class="av av-'+teamColor(p.team)+'">'+initials(p)+'</div>'
-      + '<div><div style="font-weight:500;cursor:pointer;color:var(--green-dark);text-decoration:underline;text-underline-offset:2px;" onclick="openPlayerDetail(\''+p.id+'\')">'+p.first+' '+p.last+'</div><div style="font-size:11px;color:var(--text-secondary);">'+(state.parents.find(par => par.id === p.parentId)?.email || '')+'</div></div></div></td>'
-      + '<td><input type="text" value="'+(p.jersey||'')+'" placeholder="—" onchange="setJersey(\''+p.id+'\',this.value)" style="width:42px;font-size:12px;padding:3px 5px;border-radius:5px;border:1px solid var(--gray-border);text-align:center;font-weight:600;" maxlength="3"></td>'
-      + '<td><span class="team-tag" style="background:var(--orange-light);color:var(--orange-mid);">'+p.team+'</span></td>'
-      + '<td>'+(p.grad||'—')+'</td>'
-      + '<td><div style="font-size:13px;">'+(function(){const par = state.parents.find(par => par.id === p.parentId); return par ? (par.first + ' ' + par.last) : '—';})()+'</div><div style="font-size:11px;color:var(--text-secondary);">'+(state.parents.find(par => par.id === p.parentId)?.phone || '')+'</div></td>'
-      + '<td>'+(p.waiver?'<span class="pill pill-green">Agreed ✓</span>':'<span class="pill pill-red">Pending</span>')+'</td>'
-      + '<td><span class="pill '+rateClass+'">'+rateStr+'</span></td>'
-      + '<td>'+selectHtml+'</td>'
+    row += '<td>' + selectHtml + '</td>'
       + '<td style="text-align:center;">'
-        + '<div style="width:28px;height:28px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;'
-        + (paid ? 'background:var(--teal);color:#fff;' : 'background:#FEEBEB;color:#C0392B;border:2px solid #F5B7B7;')
-        + '">'+(paid?'✓':'✗')+'</div>'
+      + '<div style="width:28px;height:28px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;'
+      + (paid ? 'background:var(--teal);color:#fff;' : 'background:#FEEBEB;color:#C0392B;border:2px solid #F5B7B7;')
+      + '">' + (paid ? '✓' : '✗') + '</div>'
       + '</td>'
+      // Action buttons (admin only)
       + '<td style="text-align:right;">'
-        + '<button class="btn btn-sm" onclick="editPlayer(\''+p.id+'\')">Edit</button>'
-        + '<button class="btn btn-sm btn-danger" style="margin-left:4px;" onclick="deletePlayer(\''+p.id+'\')">Remove</button>'
-      + '</td>'
-      + '</tr>';
-  }).join('');
+      + '<button class="btn btn-sm" onclick="editPlayer(\'' + p.id + '\')">Edit</button>'
+      + '<button class="btn btn-sm btn-danger" style="margin-left:4px;" onclick="deletePlayer(\'' + p.id + '\')">Remove</button>'
+      + '</td>';
+  }
+
+  row += '</tr>';
+  return row;
 }
+
+
+function renderRosterTable(opts) {
+  const tb = document.getElementById(opts.containerId);
+  if (!tb) return;
+  const isAdmin = opts.role === 'admin';
+
+  let players = state.players.slice();
+  if (opts.teamFilter) players = players.filter(p => p.team === opts.teamFilter);
+  if (opts.search) players = players.filter(p => (p.first + ' ' + p.last).toLowerCase().includes(opts.search));
+  if (opts.teamScope) players = players.filter(p => opts.teamScope.includes(p.team));
+  // Sort by team then last name for predictability
+  players.sort((a, b) => (a.team || '').localeCompare(b.team || '') || a.last.localeCompare(b.last));
+
+  // For the coach roster, the container is a div (not a tbody) — so we render a full table
+  if (opts.role === 'coach') {
+    if (!players.length) {
+      tb.innerHTML = '<div class="empty"><div class="empty-icon">👥</div><div class="empty-text">No players on your teams yet</div></div>';
+      return;
+    }
+    tb.innerHTML = '<div class="panel"><div class="table-wrap"><table>'
+      + '<thead><tr><th>Player</th><th>#</th><th>Team</th><th>Grad Year</th><th>Parent / Guardian</th><th>Waiver</th><th>Attendance Rate</th></tr></thead>'
+      + '<tbody>' + players.map(p => buildRosterRow(p, false)).join('') + '</tbody>'
+      + '</table></div></div>';
+    return;
+  }
+
+  // Admin path: container IS a tbody
+  if (!players.length) {
+    tb.innerHTML = '<tr><td colspan="10"><div class="empty"><div class="empty-icon">👥</div><div class="empty-text">No players found</div></div></td></tr>';
+    return;
+  }
+  tb.innerHTML = players.map(p => buildRosterRow(p, true)).join('');
+}
+
+function buildRosterRow(p, includeAdminCols) {
+  const rate = getAttendRate(p.id);
+  const rateStr = rate !== null ? rate + '%' : '—';
+  const rateClass = rate === null ? '' : rate >= 75 ? 'pill-green' : rate >= 50 ? 'pill-amber' : 'pill-red';
+  const parent = state.parents.find(par => par.id === p.parentId);
+  const parentName = parent ? (parent.first + ' ' + parent.last) : '—';
+  const parentEmail = parent ? (parent.email || '') : '';
+  const parentPhone = parent ? (parent.phone || '') : '';
+
+  let row = '<tr>'
+    + '<td><div style="display:flex;align-items:center;gap:9px;">'
+    + '<div class="av av-' + teamColor(p.team) + '">' + initials(p) + '</div>'
+    + '<div><div style="font-weight:500;cursor:pointer;color:var(--green-dark);text-decoration:underline;text-underline-offset:2px;" onclick="openPlayerDetail(\'' + p.id + '\')">' + p.first + ' ' + p.last + '</div>'
+    + '<div style="font-size:11px;color:var(--text-secondary);">' + parentEmail + '</div>'
+    + '</div></div></td>';
+
+  // Jersey: editable for admin, read-only for coach
+  if (includeAdminCols) {
+    row += '<td><input type="text" value="' + (p.jersey || '') + '" placeholder="—" onchange="setJersey(\'' + p.id + '\',this.value)" style="width:42px;font-size:12px;padding:3px 5px;border-radius:5px;border:1px solid var(--gray-border);text-align:center;font-weight:600;" maxlength="3"></td>';
+  } else {
+    row += '<td style="text-align:center;font-weight:600;">' + (p.jersey || '—') + '</td>';
+  }
+
+  row += '<td><span class="team-tag" style="background:var(--orange-light);color:var(--orange-mid);">' + (p.team || '—') + '</span></td>'
+    + '<td>' + (p.grad || '—') + '</td>'
+    + '<td><div style="font-size:13px;">' + parentName + '</div><div style="font-size:11px;color:var(--text-secondary);">' + parentPhone + '</div></td>'
+    + '<td>' + (p.waiver ? '<span class="pill pill-green">Agreed ✓</span>' : '<span class="pill pill-red">Pending</span>') + '</td>'
+    + '<td><span class="pill ' + rateClass + '">' + rateStr + '</span></
 
 function openPlayerModal(id) {
   state.editingId = id || null;
@@ -3383,7 +3509,7 @@ function renderParentAccount() {
         </div>
         ${active ? '<span class="pill pill-green" style="font-size:10px;">Viewing</span>' : `<button class="btn btn-sm" onclick="switchPlayer('${p.id}')">View</button>`}
         <button class="btn btn-sm" onclick="openPlayerDetail('${p.id}')">View</button>
-        <button <button class="btn btn-sm" onclick="openEditChildModal('${p.id}')">Edit</button>
+        <button class="btn btn-sm" onclick="openEditChildModal('${p.id}')">Edit</button>
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         <div style="display:flex;align-items:center;gap:6px;">
@@ -3538,12 +3664,41 @@ function renderCoachRoster() {
   const coach = state.currentCoach;
   if (!coach) return;
   const container = document.getElementById('coach-roster-content');
-  const myPlayers = state.players.filter(p => coach.teams.includes(p.team));
+  if (!container) return;
 
-  if (!myPlayers.length) {
+  let players = state.players.filter(p => coach.teams && coach.teams.includes(p.team));
+  players.sort((a, b) => (a.team || '').localeCompare(b.team || '') || a.last.localeCompare(b.last));
+
+  if (!players.length) {
     container.innerHTML = '<div class="empty"><div class="empty-icon">👥</div><div class="empty-text">No players on your teams yet</div></div>';
     return;
   }
+
+  const rows = players.map(p => {
+    const rate = getAttendRate(p.id);
+    const rateStr = rate !== null ? rate + '%' : '—';
+    const rateClass = rate === null ? '' : rate >= 75 ? 'pill-green' : rate >= 50 ? 'pill-amber' : 'pill-red';
+    const parent = state.parents.find(par => par.id === p.parentId);
+    const parentName = parent ? (parent.first + ' ' + parent.last) : '—';
+    const parentEmail = parent ? (parent.email || '') : '';
+    const parentPhone = parent ? (parent.phone || '') : '';
+    return '<tr>'
+      + '<td><div style="display:flex;align-items:center;gap:9px;"><div class="av av-'+teamColor(p.team)+'">'+initials(p)+'</div>'
+      + '<div><div style="font-weight:500;cursor:pointer;color:var(--green-dark);text-decoration:underline;text-underline-offset:2px;" onclick="openPlayerDetail(\''+p.id+'\')">'+p.first+' '+p.last+'</div><div style="font-size:11px;color:var(--text-secondary);">'+parentEmail+'</div></div></div></td>'
+      + '<td style="text-align:center;font-weight:600;">'+(p.jersey||'—')+'</td>'
+      + '<td><span class="team-tag" style="background:var(--orange-light);color:var(--orange-mid);">'+p.team+'</span></td>'
+      + '<td>'+(p.grad||'—')+'</td>'
+      + '<td><div style="font-size:13px;">'+parentName+'</div><div style="font-size:11px;color:var(--text-secondary);">'+parentPhone+'</div></td>'
+      + '<td>'+(p.waiver?'<span class="pill pill-green">Agreed ✓</span>':'<span class="pill pill-red">Pending</span>')+'</td>'
+      + '<td><span class="pill '+rateClass+'">'+rateStr+'</span></td>'
+      + '</tr>';
+  }).join('');
+
+  container.innerHTML = '<div class="panel"><div class="table-wrap"><table>'
+    + '<thead><tr><th>Player</th><th>#</th><th>Team</th><th>Grad Year</th><th>Parent / Guardian</th><th>Waiver</th><th>Attendance Rate</th></tr></thead>'
+    + '<tbody>'+rows+'</tbody>'
+    + '</table></div></div>';
+}
 
   // Group by team
   const byTeam = {};
