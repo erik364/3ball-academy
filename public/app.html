@@ -3383,7 +3383,7 @@ function renderParentAccount() {
         </div>
         ${active ? '<span class="pill pill-green" style="font-size:10px;">Viewing</span>' : `<button class="btn btn-sm" onclick="switchPlayer('${p.id}')">View</button>`}
         <button class="btn btn-sm" onclick="openPlayerDetail('${p.id}')">View</button>
-<button <button class="btn btn-sm" onclick="openEditChildModal('${p.id}')">Edit</button>
+        <button <button class="btn btn-sm" onclick="openEditChildModal('${p.id}')">Edit</button>
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         <div style="display:flex;align-items:center;gap:6px;">
@@ -3566,7 +3566,7 @@ function renderCoachRoster() {
                 <td>
                   <div style="display:flex;align-items:center;gap:8px;">
                     <div class="av av-${teamColor(p.team)}" style="width:24px;height:24px;font-size:9px;">${initials(p)}</div>
-                    <span>${p.first} ${p.last}</span>
+                    <span style="cursor:pointer;color:var(--green-dark);text-decoration:underline;text-underline-offset:2px;font-weight:500;" onclick="openPlayerDetail('${p.id}')">${p.first} ${p.last}</span>
                   </div>
                 </td>
                 <td>${p.grad || '—'}</td>
