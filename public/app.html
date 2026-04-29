@@ -8,7 +8,8 @@
     const url = params.get('supabaseUrl');
     const key = params.get('supabaseAnonKey');
     if (!url || !key) {
-      console.error('[3Ball] Missing Supabase config in URL params');
+      // No params yet — AppShell will reload us with the right query string.
+      // Don't log here; it just creates noise on the initial render.
       window.sb = null;
       return;
     }
