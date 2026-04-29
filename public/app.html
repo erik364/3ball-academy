@@ -1984,6 +1984,104 @@ async function loadCoaches() {
     console.error('loadLocations threw:', e);
   }
 }
+  async function loadPractices() {
+  if (!sb) return;
+  try {
+    const { data, error } = await sb.from('practices').select('*').order('date');
+    if (error) { console.error('loadPractices error:', error); return; }
+    state.practices = (data || []).map(function(row) {
+      return {
+        id: row.id,
+        date: row.date,
+        start: row.start_time ? row.start_time.slice(0,5) : '',
+        end: row.end_time ? row.end_time.slice(0,5) : '',
+        location: row.location || '',
+        groups: row.groups || [],
+        notes: row.notes || '',
+        coachIds: row.coach_ids || [],
+        checkedIn: [],
+        rsvp: {},
+        coachRsvp: {}
+      };
+    });
+  } catch (e) { console.error('loadPractices threw:', e); }
+}
+
+async function loadTournaments() {
+  if (!sb) return;
+  try {
+    const { data, error } = await sb.from('tournaments').select('*').order('start_date');
+    if (error) { console.error('loadTournaments error:', error); return; }
+    state.tournaments = (data || []).map(function(row) {
+      return {
+        id: row.id,
+        name: row.name,
+        startDate: row.start_date,
+        endDate: row.end_date || row.start_date,
+        location: row.location || '',
+        address: '',
+        notes: row.notes || '',
+        result: '',
+        groups: row.groups || [],
+        coachIds: row.coach_ids || [],
+        checkedIn: [],
+        rsvp: {},
+        coachRsvp: {}
+      };
+    });
+  } catch (e) { console.error('loadTournaments threw:', e); }
+}
+
+async function loadPracticeRsvps() {
+  if (!sb) return;
+  try {
+    const { data, error } = await sb.from('practice_rsvps').select('*');
+    if (error) { console.error('loadPracticeRsvps error:', error); return; }
+    (data || []).forEach(function(row) {
+      const pr = state.practices.find(function(p) { return p.id === row.practice_id; });
+      if (pr) {
+        if (!pr.rsvp) pr.rsvp = {};
+        pr.rsvp[row.player_id] = row.answer;
+      }
+    });
+  } catch (e) { console.error('loadPracticeRsvps threw:', e); }
+}
+
+async function loadTournamentRsvps() {
+  if (!sb) return;
+  try {
+    const { data, error } = await sb.from('tournament_rsvps').select('*');
+    if (error) { console.error('loadTournamentRsvps error:', error); return; }
+    (data || []).forEach(function(row) {
+      const t = state.tournaments.find(function(x) { return x.id === row.tournament_id; });
+      if (t) {
+        if (!t.rsvp) t.rsvp = {};
+        t.rsvp[row.player_id] = row.answer;
+      }
+    });
+  } catch (e) { console.error('loadTournamentRsvps threw:', e); }
+}
+
+async function loadPracticeCheckins() {
+  if (!sb) return;
+  try {
+    const { data, error } = await sb.from('practice_checkins').select('*');
+    if (error) { console.error('loadPracticeCheckins error:', error); return; }
+    (data || []).forEach(function(row) {
+      const pr = state.practices.find(function(p) { return p.id === row.practice_id; });
+      if (pr) {
+        if (!pr.checkedIn) pr.checkedIn = [];
+        if (!pr.checkedIn.includes(row.player_id)) pr.checkedIn.push(row.player_id);
+      }
+    });
+  } catch (e) { console.error('loadPracticeCheckins threw:', e); }
+}
+
+// Convenience wrapper: load practices/tournaments + their child rows in the right order
+async function loadSchedule() {
+  await Promise.all([loadPractices(), loadTournaments()]);
+  await Promise.all([loadPracticeRsvps(), loadTournamentRsvps(), loadPracticeCheckins()]);
+}
 function resolveSupabaseUser(user) {
   var email = (user.email || '').toLowerCase();
   var metaRole = user.user_metadata && user.user_metadata.role;
@@ -2035,7 +2133,7 @@ function doLogin() {
       err.textContent = 'Invalid email or password.';
       return;
     }
-   Promise.all([loadCoaches(), loadParents(), loadPlayers(), loadPlayerNotes()]).then(function() {
+   Promise.all([loadCoaches(), loadParents(), loadPlayers(), loadPlayerNotes(), loadSchedule()]).then(function() {
       var resolved = resolveSupabaseUser(result.data.user);
       if (!resolved) {
         err.textContent = 'Account exists but no role is assigned. Contact your admin.';
@@ -2070,7 +2168,7 @@ function enterApp(role) {
   document.getElementById('login-page').style.display = 'none';
   document.getElementById('app').style.display = 'block';
 
-Promise.all([loadLocations(), loadCoaches(), loadParents(), loadPlayers(), loadPlayerNotes()]).then(function() {
+Promise.all([loadLocations(), loadCoaches(), loadParents(), loadPlayers(), loadPlayerNotes(), loadSchedule()]).then(function() {
     if (typeof renderLocations === 'function') renderLocations();
     if (typeof renderCoachManagement === 'function') renderCoachManagement();
 
@@ -2215,7 +2313,7 @@ function submitNewPassword() {
   sb.auth.getSession().then(function(result) {
     var session = result.data && result.data.session;
     if (!session || !session.user) return;
-    Promise.all([loadCoaches(), loadParents(), loadPlayers(), loadPlayerNotes()]).then(function() {
+    Promise.all([loadCoaches(), loadParents(), loadPlayers(), loadPlayerNotes(), loadSchedule()]).then(function() {
         var resolved = resolveSupabaseUser(session.user);
         if (!resolved) return;
         if (resolved.role === 'admin' || resolved.role === 'coach') {
@@ -2523,35 +2621,49 @@ function openPracticeModal(id) {
 
 function editPractice(id) { openPracticeModal(id); }
 
-function savePractice() {
+async function savePractice() {
   const groups = [...document.querySelectorAll('#p-groups input:checked')].map(c=>c.value);
   if (!document.getElementById('p-date').value || !groups.length || !document.getElementById('p-location').value) {
     alert('Please fill in date, location, and at least one group.'); return;
   }
   const coachIds = [...document.querySelectorAll('#p-coaches input[type=checkbox]:checked')].map(c=>c.value);
-  const data = {
+  const row = {
     date: document.getElementById('p-date').value,
-    start: document.getElementById('p-start').value,
-    end: document.getElementById('p-end').value,
+    start_time: document.getElementById('p-start').value,
+    end_time: document.getElementById('p-end').value,
     location: document.getElementById('p-location').value,
-    groups, notes: document.getElementById('p-notes').value,
-    coachIds
+    groups: groups,
+    notes: document.getElementById('p-notes').value,
+    coach_ids: coachIds
   };
-  if (state.editingId) {
-    const idx = state.practices.findIndex(p=>p.id===state.editingId);
-    state.practices[idx] = { ...state.practices[idx], ...data };
-    toast('Practice updated!');
-  } else {
-    state.practices.push({ id: uid(), checkedIn: [], coachRsvp:{}, ...data });
-    toast('Practice added!');
+
+  if (!sb) { alert('Auth not ready.'); return; }
+
+  try {
+    if (state.editingId) {
+      const { error } = await sb.from('practices').update(row).eq('id', state.editingId);
+      if (error) { alert('Could not save: ' + error.message); return; }
+      toast('Practice updated!');
+    } else {
+      const { error } = await sb.from('practices').insert(row);
+      if (error) { alert('Could not save: ' + error.message); return; }
+      toast('Practice added!');
+    }
+    closeModal('practice-modal');
+    await loadSchedule();
+    renderPractices(practiceFilter);
+  } catch (e) {
+    console.error('savePractice threw:', e);
+    alert('Could not save the practice.');
   }
-  closeModal('practice-modal');
-  renderPractices(practiceFilter);
 }
 
-function deletePractice(id) {
+async function deletePractice(id) {
   if (!confirm('Delete this practice?')) return;
-  state.practices = state.practices.filter(p=>p.id!==id);
+  if (!sb) return;
+  const { error } = await sb.from('practices').delete().eq('id', id);
+  if (error) { alert('Could not delete: ' + error.message); return; }
+  await loadSchedule();
   renderPractices(practiceFilter);
   toast('Practice deleted.');
 }
@@ -2621,34 +2733,46 @@ function openTournamentModal(id) {
   openModal('tournament-modal');
 }
 function editTournament(id) { openTournamentModal(id); }
-function saveTournament() {
+async function saveTournament() {
   if (!document.getElementById('t-name').value || !document.getElementById('t-start').value) { alert('Name and start date required.'); return; }
   const coachIdsT = [...document.querySelectorAll('#t-coaches input[type=checkbox]:checked')].map(c=>c.value);
-  const data = {
+  const startVal = document.getElementById('t-start').value;
+  const row = {
     name: document.getElementById('t-name').value,
-    startDate: document.getElementById('t-start').value,
-    endDate: document.getElementById('t-end').value || document.getElementById('t-start').value,
+    start_date: startVal,
+    end_date: document.getElementById('t-end').value || startVal,
     location: document.getElementById('t-location').value,
-    address: document.getElementById('t-address').value,
     notes: document.getElementById('t-notes').value,
-    result: document.getElementById('t-result').value,
     groups: [...document.querySelectorAll('#t-groups input:checked')].map(c=>c.value),
-    coachIds: coachIdsT
+    coach_ids: coachIdsT
   };
-  if (state.editingId) {
-    const idx = state.tournaments.findIndex(t=>t.id===state.editingId);
-    state.tournaments[idx] = { ...state.tournaments[idx], ...data };
-    toast('Tournament updated!');
-  } else {
-    state.tournaments.push({ id: uid(), coachRsvp:{}, ...data });
-    toast('Tournament added!');
+
+  if (!sb) { alert('Auth not ready.'); return; }
+
+  try {
+    if (state.editingId) {
+      const { error } = await sb.from('tournaments').update(row).eq('id', state.editingId);
+      if (error) { alert('Could not save: ' + error.message); return; }
+      toast('Tournament updated!');
+    } else {
+      const { error } = await sb.from('tournaments').insert(row);
+      if (error) { alert('Could not save: ' + error.message); return; }
+      toast('Tournament added!');
+    }
+    closeModal('tournament-modal');
+    await loadSchedule();
+    renderTournaments();
+  } catch (e) {
+    console.error('saveTournament threw:', e);
+    alert('Could not save the tournament.');
   }
-  closeModal('tournament-modal');
-  renderTournaments();
 }
-function deleteTournament(id) {
+async function deleteTournament(id) {
   if (!confirm('Delete this tournament?')) return;
-  state.tournaments = state.tournaments.filter(t=>t.id!==id);
+  if (!sb) return;
+  const { error } = await sb.from('tournaments').delete().eq('id', id);
+  if (error) { alert('Could not delete: ' + error.message); return; }
+  await loadSchedule();
   renderTournaments();
   toast('Tournament deleted.');
 }
@@ -2841,16 +2965,49 @@ function renderCheckinGrid() {
     </div>`;
 }
 
-function toggleCheckin(sessionId, type, playerId) {
-  const session = type === 'practice' ? state.practices.find(p=>p.id===sessionId) : state.tournaments.find(t=>t.id===sessionId);
+async function toggleCheckin(sessionId, type, playerId) {
+  if (type !== 'practice') {
+    // Tournament check-ins not in DB schema; keep in-memory only for now
+    const session = state.tournaments.find(t=>t.id===sessionId);
+    if (!session) return;
+    if (!session.checkedIn) session.checkedIn = [];
+    if (session.checkedIn.includes(playerId)) {
+      session.checkedIn = session.checkedIn.filter(id=>id!==playerId);
+    } else {
+      session.checkedIn.push(playerId);
+    }
+    renderCheckinGrid();
+    renderReminderPanel();
+    return;
+  }
+
+  if (!sb) return;
+  const session = state.practices.find(p=>p.id===sessionId);
   if (!session) return;
-  if (session.checkedIn.includes(playerId)) {
+  if (!session.checkedIn) session.checkedIn = [];
+  const wasCheckedIn = session.checkedIn.includes(playerId);
+
+  // Optimistic local update
+  if (wasCheckedIn) {
     session.checkedIn = session.checkedIn.filter(id=>id!==playerId);
   } else {
     session.checkedIn.push(playerId);
   }
   renderCheckinGrid();
   renderReminderPanel();
+
+  try {
+    if (wasCheckedIn) {
+      const { error } = await sb.from('practice_checkins').delete().eq('practice_id', sessionId).eq('player_id', playerId);
+      if (error) throw error;
+    } else {
+      const { error } = await sb.from('practice_checkins').insert({ practice_id: sessionId, player_id: playerId });
+      if (error) throw error;
+    }
+  } catch (e) {
+    console.error('toggleCheckin error:', e);
+    alert('Could not save check-in. Refresh to see real state.');
+  }
 }
 
 function toggleCoachCheckin(sessionId, type, coachId) {
@@ -3452,14 +3609,38 @@ function renderPlayerScheduleFilter(filter) {
   }).join('');
 }
 
-function setRsvp(sessionId, type, answer) {
+async function setRsvp(sessionId, type, answer) {
   const p = state.currentUser;
+  if (!p || !sb) return;
   const session = type==='practice' ? state.practices.find(x=>x.id===sessionId) : state.tournaments.find(x=>x.id===sessionId);
   if (!session) return;
+
+  // Optimistic local update so the UI feels instant
   if (!session.rsvp) session.rsvp = {};
   session.rsvp[p.id] = answer;
   renderPlayerScheduleFilter(currentSchedFilter);
-  toast(answer==='yes' ? "Marked as going 🏀" : "Marked as not going.");
+
+  // Persist to Supabase. Use upsert keyed on (practice_id, player_id) or (tournament_id, player_id).
+  const tableName = type === 'practice' ? 'practice_rsvps' : 'tournament_rsvps';
+  const fkCol = type === 'practice' ? 'practice_id' : 'tournament_id';
+  const row = { player_id: p.id, answer: answer, updated_at: new Date().toISOString() };
+  row[fkCol] = sessionId;
+
+  // Upsert: try insert, on conflict update
+  try {
+    const existing = await sb.from(tableName).select('id').eq(fkCol, sessionId).eq('player_id', p.id).maybeSingle();
+    if (existing.data) {
+      const upd = await sb.from(tableName).update({ answer: answer, updated_at: row.updated_at }).eq('id', existing.data.id);
+      if (upd.error) throw upd.error;
+    } else {
+      const ins = await sb.from(tableName).insert(row);
+      if (ins.error) throw ins.error;
+    }
+    toast(answer==='yes' ? "Marked as going 🏀" : "Marked as not going.");
+  } catch (e) {
+    console.error('setRsvp error:', e);
+    alert('Could not save your RSVP. Please try again.');
+  }
 }
 
 function playerSelfCheckin(practiceId) {
@@ -3641,13 +3822,29 @@ function renderPlayerTournaments() {
   }).join('') : '<div class="empty" style="grid-column:1/-1;"><div class="empty-icon">🏆</div><div class="empty-text">No tournaments for your group</div></div>';
 }
 
-function setTournRsvp(tournId, playerId, answer) {
+async function setTournRsvp(tournId, playerId, answer) {
   const t = state.tournaments.find(x=>x.id===tournId);
-  if (!t) return;
+  if (!t || !sb) return;
+
   if (!t.rsvp) t.rsvp = {};
   t.rsvp[playerId] = answer;
   renderPlayerTournaments();
-  toast(answer==='yes' ? "Marked as going 🏆" : "Marked as not going.");
+
+  const row = { tournament_id: tournId, player_id: playerId, answer: answer, updated_at: new Date().toISOString() };
+  try {
+    const existing = await sb.from('tournament_rsvps').select('id').eq('tournament_id', tournId).eq('player_id', playerId).maybeSingle();
+    if (existing.data) {
+      const upd = await sb.from('tournament_rsvps').update({ answer: answer, updated_at: row.updated_at }).eq('id', existing.data.id);
+      if (upd.error) throw upd.error;
+    } else {
+      const ins = await sb.from('tournament_rsvps').insert(row);
+      if (ins.error) throw ins.error;
+    }
+    toast(answer==='yes' ? "Marked as going 🏆" : "Marked as not going.");
+  } catch (e) {
+    console.error('setTournRsvp error:', e);
+    alert('Could not save the RSVP. Please try again.');
+  }
 }
 
 // ===== PARENT ACCOUNT MANAGEMENT =====
