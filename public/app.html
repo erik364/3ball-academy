@@ -1947,18 +1947,14 @@ Promise.all([loadLocations(), loadCoaches(), loadParents(), loadPlayers()]).then
     var firstKid = myKids[0];
     state.currentPlayer = firstKid;
     state.activePlayerId = firstKid.id;
-    // Set currentUser to the active player for the parent-side render code
+    // currentUser shape that the parent-side render code expects (player-shaped),
+    // but the SIDEBAR continues to show the actual logged-in parent
     state.currentUser = {
       ...firstKid,
       role: 'parent',
       initials: ((firstKid.first[0] || '?') + (firstKid.last[0] || '')).toUpperCase(),
       name: firstKid.first + ' ' + firstKid.last
     };
-    // Update the sidebar to show the active player's name/avatar
-    var nameEl = document.querySelector('.user-name-text');
-    var avEl = document.querySelector('.user-av');
-    if (nameEl) nameEl.textContent = firstKid.first + ' ' + firstKid.last;
-    if (avEl) avEl.textContent = ((firstKid.first[0] || '?') + (firstKid.last[0] || '')).toUpperCase();
   }
   if (typeof renderSwitcherPills === 'function') renderSwitcherPills();
   if (typeof renderPlayerHome === 'function') renderPlayerHome();
@@ -1973,11 +1969,17 @@ Promise.all([loadLocations(), loadCoaches(), loadParents(), loadPlayers()]).then
   showPage(startPage);
 
   var nameEl = document.querySelector('.user-name-text');
-  var roleEl = document.querySelector('.user-role-text');
-  var avEl   = document.querySelector('.user-av');
-  if (nameEl && state.currentUser) nameEl.textContent = state.currentUser.name;
-  if (roleEl && state.currentUser) roleEl.textContent = state.currentUser.role;
-  if (avEl   && state.currentUser) avEl.textContent   = state.currentUser.initials;
+var roleEl = document.querySelector('.user-role-text');
+var avEl   = document.querySelector('.user-av');
+// For parents, sidebar always shows the logged-in parent (not the viewed player)
+if (role === 'parent' && state.currentParent) {
+  if (nameEl) nameEl.textContent = state.currentParent.first + ' ' + state.currentParent.last;
+  if (roleEl) roleEl.textContent = 'parent';
+  if (avEl)   avEl.textContent   = ((state.currentParent.first[0] || '?') + (state.currentParent.last[0] || '')).toUpperCase();
+} else if (state.currentUser) {
+  if (nameEl) nameEl.textContent = state.currentUser.name;
+  if (roleEl) roleEl.textContent = state.currentUser.role;
+  if (avEl)   avEl.textContent   = state.currentUser.initials;
 }
   function doLogout() {document.body.removeAttribute('data-role');
   if (sb) {
@@ -3764,8 +3766,6 @@ function switchPlayer(playerId) {
   if (!p) return;
   state.currentPlayer = p;
   state.activePlayerId = playerId;
-  // Update state.currentUser to "be" this player for the parent-side render code,
-  // but preserve the parent's role and original auth identity in state.currentParent
   state.currentUser = {
     ...p,
     role: 'parent',
@@ -3773,11 +3773,6 @@ function switchPlayer(playerId) {
     name: p.first + ' ' + p.last
   };
   renderSwitcherPills();
-  // Update the sidebar avatar/name to show the active player
-  const nameEl = document.querySelector('.user-name-text');
-  const avEl = document.querySelector('.user-av');
-  if (nameEl) nameEl.textContent = p.first + ' ' + p.last;
-  if (avEl) avEl.textContent = ((p.first[0] || '?') + (p.last[0] || '')).toUpperCase();
   // Re-render whichever parent page is currently active
   const activePage = document.querySelector('#player-nav .nav-item.active');
   if (activePage) {
