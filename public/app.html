@@ -1739,17 +1739,38 @@ function resetForgotForm() {
 }
 
 function submitForgotPassword() {
-  const email = document.getElementById('forgot-email').value.trim();
-  const err = document.getElementById('forgot-error');
+  var emailEl = document.getElementById('forgot-email');
+  var errEl = document.getElementById('forgot-error');
+  var email = (emailEl.value || '').trim();
+  errEl.textContent = '';
+
   if (!email || !email.includes('@')) {
-    err.textContent = 'Please enter a valid email address.';
+    errEl.textContent = 'Please enter a valid email address.';
     return;
   }
-  // In production this would call an API — here we simulate success
-  document.getElementById('forgot-step-1').style.display = 'none';
-  document.getElementById('forgot-step-2').style.display = 'block';
-  document.getElementById('forgot-footer').style.display = 'none';
-  document.getElementById('forgot-sent-email').textContent = email;
+  if (!sb) {
+    errEl.textContent = 'Auth not ready. Please refresh and try again.';
+    return;
+  }
+
+  // Build the redirect URL — keep the parent app's URL params so Supabase config survives the round trip.
+  // The user will land on the parent page (Vercel app), which loads this iframe with the recovery token in the hash.
+  var redirectTo = window.parent.location.origin + window.parent.location.pathname + window.parent.location.search;
+
+  sb.auth.resetPasswordForEmail(email, { redirectTo: redirectTo }).then(function(result) {
+    if (result.error) {
+      errEl.textContent = result.error.message || 'Could not send reset email.';
+      return;
+    }
+    // Show success step
+    document.getElementById('forgot-step-1').style.display = 'none';
+    document.getElementById('forgot-step-2').style.display = 'block';
+    document.getElementById('forgot-footer').style.display = 'none';
+    document.getElementById('forgot-sent-email').textContent = email;
+  }).catch(function(e) {
+    console.error('Reset password error:', e);
+    errEl.textContent = 'Could not send reset email. Please try again.';
+  });
 }
 
 // ===== LOGIN =====
