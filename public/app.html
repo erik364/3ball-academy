@@ -2763,11 +2763,11 @@ function renderRoster() {
       + '</select>';
     return '<tr>'
       + '<td><div style="display:flex;align-items:center;gap:9px;"><div class="av av-'+teamColor(p.team)+'">'+initials(p)+'</div>'
-      + '<div><div style="font-weight:500;">'+p.first+' '+p.last+'</div><div style="font-size:11px;color:var(--text-secondary);">'+(p.email||'')+'</div></div></div></td>'
+      + '<div><div style="font-weight:500;cursor:pointer;color:var(--green-dark);text-decoration:underline;text-underline-offset:2px;" onclick="openPlayerDetail(\''+p.id+'\')">'+p.first+' '+p.last+'</div><div style="font-size:11px;color:var(--text-secondary);">'+(state.parents.find(par => par.id === p.parentId)?.email || '')+'</div></div></div></td>'
       + '<td><input type="text" value="'+(p.jersey||'')+'" placeholder="—" onchange="setJersey(\''+p.id+'\',this.value)" style="width:42px;font-size:12px;padding:3px 5px;border-radius:5px;border:1px solid var(--gray-border);text-align:center;font-weight:600;" maxlength="3"></td>'
       + '<td><span class="team-tag" style="background:var(--orange-light);color:var(--orange-mid);">'+p.team+'</span></td>'
       + '<td>'+(p.grad||'—')+'</td>'
-      + '<td><div style="font-size:13px;">'+(p.parent||'—')+'</div><div style="font-size:11px;color:var(--text-secondary);">'+(p.phone||'')+'</div></td>'
+      + '<td><div style="font-size:13px;">'+(function(){const par = state.parents.find(par => par.id === p.parentId); return par ? (par.first + ' ' + par.last) : '—';})()+'</div><div style="font-size:11px;color:var(--text-secondary);">'+(state.parents.find(par => par.id === p.parentId)?.phone || '')+'</div></td>'
       + '<td>'+(p.waiver?'<span class="pill pill-green">Agreed ✓</span>':'<span class="pill pill-red">Pending</span>')+'</td>'
       + '<td><span class="pill '+rateClass+'">'+rateStr+'</span></td>'
       + '<td>'+selectHtml+'</td>'
@@ -3382,7 +3382,8 @@ function renderParentAccount() {
           <div style="font-size:11px;color:var(--text-secondary);">${p.team} · Class of ${p.grad||'—'}</div>
         </div>
         ${active ? '<span class="pill pill-green" style="font-size:10px;">Viewing</span>' : `<button class="btn btn-sm" onclick="switchPlayer('${p.id}')">View</button>`}
-        <button class="btn btn-sm" onclick="openEditChildModal('${p.id}')">Edit</button>
+        <button class="btn btn-sm" onclick="openPlayerDetail('${p.id}')">View</button>
+<button <button class="btn btn-sm" onclick="openEditChildModal('${p.id}')">Edit</button>
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         <div style="display:flex;align-items:center;gap:6px;">
