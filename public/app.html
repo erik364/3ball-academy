@@ -3731,49 +3731,6 @@ function renderCoachRoster() {
     + '</table></div></div>';
 }
 
-  // Group by team
-  const byTeam = {};
-  myPlayers.forEach(p => {
-    if (!byTeam[p.team]) byTeam[p.team] = [];
-    byTeam[p.team].push(p);
-  });
-
-  container.innerHTML = Object.entries(byTeam).map(([team, players]) => `
-    <div class="panel" style="margin-bottom:14px;">
-      <div class="panel-header"><span class="panel-title">Team ${team}</span><span class="pill pill-green">${players.length} player${players.length!==1?'s':''}</span></div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Player</th><th>Grad Year</th><th>Parent</th><th>Waiver</th><th>Attendance Rate</th></tr></thead>
-          <tbody>
-            ${players.map(p => {
-              const parent = state.parents.find(par => par.id === p.parentId);
-              const rate = getAttendRate(p.id);
-              return `<tr>
-                <td>
-                  <div style="display:flex;align-items:center;gap:8px;">
-                    <div class="av av-${teamColor(p.team)}" style="width:24px;height:24px;font-size:9px;">${initials(p)}</div>
-                    <span style="cursor:pointer;color:var(--green-dark);text-decoration:underline;text-underline-offset:2px;font-weight:500;" onclick="openPlayerDetail('${p.id}')">${p.first} ${p.last}</span>
-                  </div>
-                </td>
-                <td>${p.grad || '—'}</td>
-                <td>${parent ? parent.first+' '+parent.last : '—'}</td>
-                <td><span class="pill ${p.waiver?'pill-green':'pill-gray'}">${p.waiver?'✓ Signed':'Pending'}</span></td>
-                <td>
-                  <div style="display:flex;align-items:center;gap:8px;">
-                    <div class="attend-bar-wrap" style="flex:1;min-width:60px;">
-                      <div class="attend-bar" style="height:6px;"><div class="attend-bar-fill ${rate<50?'low':rate<75?'mid':''}" style="width:${rate}%"></div></div>
-                    </div>
-                    <span style="font-size:11px;font-weight:600;">${rate}%</span>
-                  </div>
-                </td>
-              </tr>`;
-            }).join('')}
-          </tbody>
-        </table>
-      </div>
-    </div>`).join('');
-}
-
 // ===== COACH MANAGEMENT (admin) =====
 
 function renderCoachManagement() {
