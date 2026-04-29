@@ -668,7 +668,27 @@ body[data-role="coach"] .mobile-more-btn { display: none !important; }
     </div><!-- /body -->
   </div><!-- /card -->
 </div>
-
+<!-- ===== SET NEW PASSWORD ===== -->
+<div id="reset-password-page" style="display:none;min-height:100vh;align-items:center;justify-content:center;background:var(--green-dark);padding:20px;">
+  <div class="login-box" style="background:var(--white);border-radius:var(--radius-lg);width:100%;max-width:360px;box-shadow:0 8px 40px rgba(0,0,0,0.35);overflow:hidden;">
+    <div style="background:var(--green-dark);padding:20px 32px 16px;text-align:center;border-bottom:4px solid var(--orange);">
+      <div style="color:#fff;font-size:18px;font-weight:600;letter-spacing:0.02em;">Set a new password</div>
+    </div>
+    <div style="padding:24px 32px 28px;">
+      <div class="form-group">
+        <label class="form-label">New password</label>
+        <input class="form-input" id="reset-password" type="password" placeholder="At least 6 characters" onkeydown="if(event.key==='Enter')submitNewPassword()">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Confirm new password</label>
+        <input class="form-input" id="reset-password-confirm" type="password" placeholder="Re-enter password" onkeydown="if(event.key==='Enter')submitNewPassword()">
+      </div>
+      <div class="login-error" id="reset-error"></div>
+      <button class="btn btn-primary" style="width:100%;padding:10px;background:var(--green-dark);border-color:var(--green-dark);" onclick="submitNewPassword()">Update password</button>
+    </div>
+  </div>
+</div>
+  
 <!-- ===== PARENT REGISTRATION MODAL ===== -->
 <div class="modal-overlay" id="register-modal">
   <div class="modal" style="max-width:520px;">
@@ -2110,7 +2130,86 @@ if (role === 'parent' && state.currentParent) {
   var errEl = document.getElementById('login-error');
   if (errEl) errEl.textContent = '';
 }
+// ===== PASSWORD RECOVERY (handles links from reset-password emails) =====
+(function detectPasswordRecovery() {
+  if (!sb) return;
 
+  // The recovery token arrives in the parent page's URL hash, e.g.
+  //   https://app.3ballacademy.com/#access_token=...&type=recovery
+  // We forward it from window.parent into this iframe, then ask Supabase to
+  // establish a session from those tokens.
+  var parentHash = '';
+  try { parentHash = window.parent.location.hash || ''; } catch (e) { parentHash = window.location.hash || ''; }
+
+  if (parentHash.indexOf('type=recovery') === -1) return;
+
+  // Parse the hash params
+  var params = new URLSearchParams(parentHash.replace(/^#/, ''));
+  var accessToken = params.get('access_token');
+  var refreshToken = params.get('refresh_token');
+  if (!accessToken || !refreshToken) return;
+
+  // Ask Supabase to use these tokens as the current session
+  sb.auth.setSession({ access_token: accessToken, refresh_token: refreshToken }).then(function(result) {
+    if (result.error) {
+      console.error('Recovery setSession error:', result.error);
+      alert('Password reset link is invalid or expired. Please request a new one.');
+      try { window.parent.location.hash = ''; } catch (e) {}
+      return;
+    }
+    // Show the reset-password screen
+    var login = document.getElementById('login-page');
+    if (login) login.style.display = 'none';
+    var reset = document.getElementById('reset-password-page');
+    if (reset) reset.style.display = 'flex';
+  });
+})();
+
+function submitNewPassword() {
+  var pw1 = document.getElementById('reset-password').value || '';
+  var pw2 = document.getElementById('reset-password-confirm').value || '';
+  var errEl = document.getElementById('reset-error');
+  errEl.textContent = '';
+
+  if (pw1.length < 6) {
+    errEl.textContent = 'Password must be at least 6 characters.';
+    return;
+  }
+  if (pw1 !== pw2) {
+    errEl.textContent = 'Passwords do not match.';
+    return;
+  }
+  if (!sb) {
+    errEl.textContent = 'Auth not ready. Please refresh.';
+    return;
+  }
+
+  var btn = document.querySelector('#reset-password-page .btn-primary');
+  var oldText = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Updating…'; }
+
+  sb.auth.updateUser({ password: pw1 }).then(function(result) {
+    if (result.error) {
+      errEl.textContent = result.error.message || 'Could not update password.';
+      if (btn) { btn.disabled = false; btn.textContent = oldText; }
+      return;
+    }
+    sb.auth.signOut().then(function() {
+      alert('Password updated. Please sign in with your new password.');
+      try {
+        window.parent.location.hash = '';
+        window.parent.location.reload();
+      } catch (e) {
+        window.location.hash = '';
+        window.location.reload();
+      }
+    });
+  }).catch(function(e) {
+    console.error('updateUser error:', e);
+    errEl.textContent = 'Could not update password. Please try again.';
+    if (btn) { btn.disabled = false; btn.textContent = oldText; }
+  });
+}
 (function restoreSession() {
   if (!sb) return;
   sb.auth.getSession().then(function(result) {
