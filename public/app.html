@@ -1942,13 +1942,27 @@ Promise.all([loadLocations(), loadCoaches(), loadParents(), loadPlayers()]).then
 
     // For parents: pick the first kid as default current player, render switcher
     if (state.currentParent) {
-      var myKids = state.players.filter(function(p) { return p.parentId === state.currentParent.id; });
-      if (myKids.length > 0 && !state.currentPlayer) {
-        state.currentPlayer = myKids[0];
-      }
-      if (typeof renderSwitcherPills === 'function') renderSwitcherPills();
-      if (typeof renderPlayerHome === 'function') renderPlayerHome();
-    }
+  var myKids = state.players.filter(function(p) { return p.parentId === state.currentParent.id; });
+  if (myKids.length > 0) {
+    var firstKid = myKids[0];
+    state.currentPlayer = firstKid;
+    state.activePlayerId = firstKid.id;
+    // Set currentUser to the active player for the parent-side render code
+    state.currentUser = {
+      ...firstKid,
+      role: 'parent',
+      initials: ((firstKid.first[0] || '?') + (firstKid.last[0] || '')).toUpperCase(),
+      name: firstKid.first + ' ' + firstKid.last
+    };
+    // Update the sidebar to show the active player's name/avatar
+    var nameEl = document.querySelector('.user-name-text');
+    var avEl = document.querySelector('.user-av');
+    if (nameEl) nameEl.textContent = firstKid.first + ' ' + firstKid.last;
+    if (avEl) avEl.textContent = ((firstKid.first[0] || '?') + (firstKid.last[0] || '')).toUpperCase();
+  }
+  if (typeof renderSwitcherPills === 'function') renderSwitcherPills();
+  if (typeof renderPlayerHome === 'function') renderPlayerHome();
+}
   });
 
   var startPage;
@@ -3748,15 +3762,27 @@ function renderSwitcherPills() {
 function switchPlayer(playerId) {
   const p = state.players.find(x => x.id === playerId);
   if (!p) return;
-  state.currentUser = { ...p, role:'parent', initials: initials(p) };
+  state.currentPlayer = p;
   state.activePlayerId = playerId;
-  refreshSidebarUser();
+  // Update state.currentUser to "be" this player for the parent-side render code,
+  // but preserve the parent's role and original auth identity in state.currentParent
+  state.currentUser = {
+    ...p,
+    role: 'parent',
+    initials: ((p.first[0] || '?') + (p.last[0] || '')).toUpperCase(),
+    name: p.first + ' ' + p.last
+  };
   renderSwitcherPills();
-  // Refresh current page
-  const activePage = document.querySelector('.nav-item.active');
+  // Update the sidebar avatar/name to show the active player
+  const nameEl = document.querySelector('.user-name-text');
+  const avEl = document.querySelector('.user-av');
+  if (nameEl) nameEl.textContent = p.first + ' ' + p.last;
+  if (avEl) avEl.textContent = ((p.first[0] || '?') + (p.last[0] || '')).toUpperCase();
+  // Re-render whichever parent page is currently active
+  const activePage = document.querySelector('#player-nav .nav-item.active');
   if (activePage) {
-    const fn = activePage.getAttribute('onclick');
-    if (fn) eval(fn);
+    const onclick = activePage.getAttribute('onclick');
+    if (onclick) eval(onclick);
   }
   toast('Now viewing ' + p.first + "'s account");
 }
