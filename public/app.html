@@ -642,7 +642,10 @@ body[data-role="parent"] #player-switcher { display: block !important; }
 body[data-role="parent"] #coach-nav { display: none !important; }      /* ← add */
 body[data-role="parent"] #coach-only-nav { display: none !important; } /* ← add */
 body[data-role="coach"] #coach-only-nav .nav-item {display: flex !important;
-body:not([data-role="admin"]) .admin-only {display: none !important;
+body:not([data-role="admin"]) .admin-only,
+body:not([data-role="admin"]) button.admin-only,
+body:not([data-role="admin"]) .btn.admin-only {
+  display: none !important;
 }
 /* Hide the "More" overflow button for parents — they don't need it */
 body[data-role="parent"] .mobile-more-btn { display: none !important; }
