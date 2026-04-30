@@ -2576,7 +2576,7 @@ function renderPractices(filter) {
   if (filter === 'upcoming') list = list.filter(p => p.date >= today());
   if (filter === 'past') list = list.filter(p => p.date < today());
   const isAdmin = state.currentUser && state.currentUser.isAdmin;
-  const tb = document.getElementById('practice-table-body');
+  const tb = document.getElementById('practices-table');
   if (!tb) return;
   if (!list.length) { tb.innerHTML = '<tr><td colspan="6"><div class="empty"><div class="empty-icon">📅</div><div class="empty-text">No practices found</div></div></td></tr>'; return; }
   tb.innerHTML = list.map(p => {
