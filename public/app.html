@@ -2144,6 +2144,7 @@ function doLogin() {
         state.currentCoach = resolved.coach;
         state.currentUser = {
           role: resolved.role,
+          isAdmin: !!resolved.coach.isAdmin,
           name: resolved.coach.first + ' ' + resolved.coach.last,
           initials: ((resolved.coach.first[0] || '?') + (resolved.coach.last[0] || '')).toUpperCase()
         };
@@ -2320,6 +2321,7 @@ function submitNewPassword() {
           state.currentCoach = resolved.coach;
           state.currentUser = {
             role: resolved.role,
+            isAdmin: !!resolved.coach.isAdmin,
             name: resolved.coach.first + ' ' + resolved.coach.last,
             initials: ((resolved.coach.first[0] || '?') + (resolved.coach.last[0] || '')).toUpperCase()
           };
