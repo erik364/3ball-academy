@@ -2220,7 +2220,7 @@ Promise.all([loadLocations(), loadCoaches(), loadParents(), loadPlayers(), loadP
 
   var startPage;
   if (role === 'admin')      startPage = 'dashboard';
-  else if (role === 'coach') startPage = 'coach-schedule';
+  else if (role === 'coach') startPage = 'dashboard';
   else                       startPage = 'player-home';
 
   showPage(startPage);
