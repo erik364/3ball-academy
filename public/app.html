@@ -4417,11 +4417,14 @@ function switchPlayer(playerId) {
   };
   renderSwitcherPills();
   // Re-render whichever parent page is currently active
-  const activePage = document.querySelector('#player-nav .nav-item.active');
-  if (activePage) {
-    const onclick = activePage.getAttribute('onclick');
-    if (onclick) eval(onclick);
-  }
+  const activePageEl = document.querySelector('.page.active');
+  const pageId = activePageEl ? activePageEl.id.replace(/^page-/, '') : 'player-home';
+  if (pageId === 'player-home') renderPlayerHome();
+  else if (pageId === 'player-schedule') renderPlayerScheduleFilter(currentSchedFilter);
+  else if (pageId === 'player-calendar') renderCalendar('player-calendar-container', false);
+  else if (pageId === 'player-attendance') renderPlayerAttendance();
+  else if (pageId === 'player-tournaments') renderPlayerTournaments();
+  else if (pageId === 'parent-account') renderParentAccount();
   toast('Now viewing ' + p.first + "'s account");
 }
 
