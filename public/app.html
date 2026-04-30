@@ -1035,7 +1035,7 @@ body[data-role="coach"] .mobile-more-btn { display: none !important; }
                 <option>G</option><option>O</option><option>3BHS</option><option>3BGals</option>
               </select>
               <input class="form-input" style="width:180px;" id="roster-search" placeholder="Search…" oninput="renderRoster()">
-              <button class="btn btn-primary" onclick="openPlayerModal()">+ Add Player</button>
+              <button class="btn btn-primary admin-only" onclick="openPlayerModal()">+ Add Player</button>
             </div>
           </div>
           <div class="panel">
@@ -1306,7 +1306,7 @@ body[data-role="coach"] .mobile-more-btn { display: none !important; }
         <div class="page" id="page-coach-management">
           <div class="section-header">
             <span class="section-title">Coach Management</span>
-            <button class="btn btn-primary" onclick="openCoachModal()">+ Add Coach</button>
+            <button class="btn btn-primary admin-only" onclick="openCoachModal()">+ Add Coach</button>
           </div>
           <div class="panel">
             <div class="table-wrap">
@@ -1645,7 +1645,7 @@ body[data-role="coach"] .mobile-more-btn { display: none !important; }
     </div>
     <div class="modal-footer">
       <button class="btn" onclick="closeModal('location-modal')">Cancel</button>
-      <button class="btn btn-primary" onclick="saveLocation()">Add Location</button>
+      <button class="btn btn-primary admin-only" onclick="saveLocation()">Add Location</button>
     </div>
   </div>
 </div>
@@ -3158,8 +3158,8 @@ function buildRosterRow(p, includeAdminCols) {
       + '</td>'
       // Action buttons (admin only)
       + '<td style="text-align:right;">'
-      + '<button class="btn btn-sm" onclick="editPlayer(\'' + p.id + '\')">Edit</button>'
-      + '<button class="btn btn-sm btn-danger" style="margin-left:4px;" onclick="deletePlayer(\'' + p.id + '\')">Remove</button>'
+      + '<button class="btn btn-sm admin-only" onclick="editPlayer(\'' + p.id + '\')">Edit</button>'
+      + '<button class="btn btn-sm btn-danger admin-only" style="margin-left:4px;" onclick="deletePlayer(\'' + p.id + '\')">Remove</button>'
       + '</td>';
   }
 
