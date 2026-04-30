@@ -1704,7 +1704,7 @@ function showPage(id, navEl) {
   if (page) page.classList.add('active');
 
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-  if (navEl) navEl.classList.add('active');
+  if (navEl && navEl.classList) navEl.classList.add('active');
 
   const titles = {
     dashboard:'Dashboard', practices:'Practices', tournaments:'Tournaments',
