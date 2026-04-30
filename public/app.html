@@ -635,9 +635,12 @@ body[data-role] #player-nav,
 body[data-role] #player-switcher { display: none !important; }
 
 body[data-role="admin"] #coach-nav { display: block !important; }
-body[data-role="coach"] #coach-nav { display: block !important; }
+body[data-role="coach"] #coach-only-nav { display: block !important; }
+body[data-role="coach"] #coach-nav { display: none !important; }       /* ← add */
 body[data-role="parent"] #player-nav { display: block !important; }
 body[data-role="parent"] #player-switcher { display: block !important; }
+body[data-role="parent"] #coach-nav { display: none !important; }      /* ← add */
+body[data-role="parent"] #coach-only-nav { display: none !important; } /* ← add */
 
 /* Hide the "More" overflow button for parents — they don't need it */
 body[data-role="parent"] .mobile-more-btn { display: none !important; }
