@@ -3632,6 +3632,7 @@ function renderPlayerScheduleFilter(filter) {
       <td>${item.location||item.name||'—'}</td>
       <td>${attendingCell}</td>
     </tr>`;
+  }).join('');
 }
 
 async function setRsvp(sessionId, type, answer) {
