@@ -635,7 +635,7 @@ body[data-role] #player-nav,
 body[data-role] #player-switcher { display: none !important; }
 
 body[data-role="admin"] #coach-nav { display: block !important; }
-body[data-role="coach"] #coach-only-nav { display: block !important; }
+body[data-role="coach"] #coach-nav { display: block !important; }
 body[data-role="parent"] #player-nav { display: block !important; }
 body[data-role="parent"] #player-switcher { display: block !important; }
 
@@ -832,13 +832,22 @@ body[data-role="coach"] .mobile-more-btn { display: none !important; }
         <div class="nav-item mobile-show mobile-more-btn" onclick="openMobileMoreMenu()"><span class="nav-icon">☰</span><span>More</span></div>
       </div>
       <div class="nav" id="coach-only-nav" style="display:none;">
-        <div class="nav-section">My Schedule</div>
-        <div class="nav-item mobile-show active" onclick="showPage('coach-schedule',this)"><span class="nav-icon">📅</span><span>Schedule</span></div>
-        <div class="nav-item mobile-show" onclick="showPage('coach-calendar',this)"><span class="nav-icon">📆</span><span>Calendar</span></div>
-        <div class="nav-section">My Teams</div>
-        <div class="nav-item mobile-show" onclick="showPage('coach-roster',this)"><span class="nav-icon">👥</span><span>Players</span></div>
-        <div class="nav-item mobile-show" onclick="window.open('https://www.jcarroll.com/collections/3ball','_blank')"><span class="nav-icon">🛒</span><span>Store</span></div>
-      </div>
+  <div class="nav-section">Overview</div>
+  <div class="nav-item mobile-show active" onclick="showPage('coach-schedule',this)"><span class="nav-icon">🏠</span><span>Home</span></div>
+
+  <div class="nav-section">Training</div>
+  <div class="nav-item mobile-show" onclick="showPage('practices',this)"><span class="nav-icon">📅</span><span>Practice</span></div>
+  <div class="nav-item mobile-show" onclick="showPage('tournaments',this)"><span class="nav-icon">🏆</span><span>Tourneys</span></div>
+  <div class="nav-item mobile-show" onclick="showPage('checkin',this)"><span class="nav-icon">✅</span><span>Check-in</span></div>
+
+  <div class="nav-section">Players</div>
+  <div class="nav-item mobile-show" onclick="showPage('roster',this)"><span class="nav-icon">👥</span><span>Roster</span></div>
+  <div class="nav-item mobile-show" onclick="showPage('attendance',this)"><span class="nav-icon">📊</span><span>Responses</span></div>
+
+  <div class="nav-section">Settings</div>
+  <div class="nav-item mobile-show" onclick="showPage('coach-calendar',this)"><span class="nav-icon">📆</span><span>Calendar</span></div>
+  <div class="nav-item mobile-show" onclick="window.open('https://www.jcarroll.com/collections/3ball','_blank')"><span class="nav-icon">🛒</span><span>Store</span></div>
+</div>
       <div class="nav" id="player-nav" style="display:none;">
         <div class="nav-section">My Portal</div>
         <div class="nav-item mobile-show active" onclick="showPage('player-home',this)"><span class="nav-icon">🏠</span><span>Home</span></div>
