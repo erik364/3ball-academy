@@ -406,6 +406,12 @@ tbody td { padding: 10px 14px; color: var(--text); vertical-align: middle; }
   /* Force flex layout on the visible nav (anything except display:none gets flex) */
   .nav[style*="display: block"],
   .nav[style*="display:block"] { display: flex !important; }
+  /* Role-based visibility sets the active nav to display:block via a CSS rule,
+     not an inline style — so the attribute selector above never matches.
+     Re-assert flex with matching specificity so items lay out horizontally on mobile. */
+  body[data-role="admin"]  #coach-nav,
+  body[data-role="coach"]  #coach-only-nav,
+  body[data-role="parent"] #player-nav { display: flex !important; }
   .nav-item { display: none !important; }
   .nav-item.mobile-show {
     display: flex !important;
