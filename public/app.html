@@ -4689,16 +4689,15 @@ function removePlayerPhoto(playerId) {
 
 // ===== MOBILE MORE MENU =====
 function openMobileMoreMenu() {
-  // Find the active nav (coach-nav, player-nav, or coach-only-nav)
-  let activeNav = null;
-  ['coach-nav', 'player-nav', 'coach-only-nav'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el && el.style.display !== 'none' && getComputedStyle(el).display !== 'none') activeNav = el;
-  });
-  if (!activeNav) {
-    // fallback: pick any visible
-    activeNav = document.getElementById('coach-nav') || document.getElementById('player-nav');
-  }
+  // Pick the active nav from the body's data-role (set by enterApp). The previous
+  // visibility check was unreliable: player-nav and coach-only-nav ship with
+  // style="display:none" baked into the HTML, and the CSS rules that toggle role
+  // visibility never clear that inline attribute. el.style.display therefore
+  // stayed "none" forever for those two, and the fallback always landed on
+  // coach-nav — so a parent's More sheet pulled coach items.
+  const navIdByRole = { admin: 'coach-nav', coach: 'coach-only-nav', parent: 'player-nav' };
+  const activeNav = document.getElementById(navIdByRole[document.body.dataset.role] || 'coach-nav');
+  if (!activeNav) return;
   // Get all nav-items NOT in the bar already, and not desktop-only (e.g. coach Store)
   const items = activeNav.querySelectorAll('.nav-item:not(.mobile-show):not(.desktop-only)');
   const list = document.getElementById('mobile-more-list');
