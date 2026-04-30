@@ -641,8 +641,8 @@ body[data-role="parent"] #player-nav { display: block !important; }
 body[data-role="parent"] #player-switcher { display: block !important; }
 body[data-role="parent"] #coach-nav { display: none !important; }      /* ← add */
 body[data-role="parent"] #coach-only-nav { display: none !important; } /* ← add */
-body[data-role="coach"] #coach-only-nav .nav-item {
-  display: flex !important;
+body[data-role="coach"] #coach-only-nav .nav-item {display: flex !important;
+body:not([data-role="admin"]) .admin-only {display: none !important;
 }
 /* Hide the "More" overflow button for parents — they don't need it */
 body[data-role="parent"] .mobile-more-btn { display: none !important; }
@@ -944,7 +944,7 @@ body[data-role="coach"] .mobile-more-btn { display: none !important; }
         <div class="page" id="page-practices">
           <div class="section-header">
             <span class="section-title">Practices</span>
-            <button class="btn btn-primary" onclick="openPracticeModal()">+ New Practice</button>
+            <button class="btn btn-primary admin-only" onclick="openPracticeModal()">+ New Practice</button>
           </div>
           <div class="panel">
             <div class="tabs">
@@ -967,7 +967,7 @@ body[data-role="coach"] .mobile-more-btn { display: none !important; }
         <div class="page" id="page-tournaments">
           <div class="section-header">
             <span class="section-title">Tournaments</span>
-            <button class="btn btn-primary" onclick="openTournamentModal()">+ New Tournament</button>
+            <button class="btn btn-primary admin-only" onclick="openTournamentModal()">+ New Tournament</button>
           </div>
           <div id="tournament-cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;"></div>
         </div>
