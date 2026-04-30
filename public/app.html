@@ -648,12 +648,6 @@ body:not([data-role="admin"]) button.admin-only,
 body:not([data-role="admin"]) .btn.admin-only {
   display: none !important;
 }
-/* Hide the "More" overflow button for parents — they don't need it */
-body[data-role="parent"] .mobile-more-btn { display: none !important; }
-
-/* Also hide it for coach (their nav is small enough) */
-body[data-role="coach"] .mobile-more-btn { display: none !important; }
-
 /* Mobile bottom nav overrides — placed last so source-order cascade beats the
    role rules above (which are non-media-scoped and apply at every width).
    Without this, body[data-role=...] #X-nav { display:block } wins on mobile and
@@ -841,13 +835,13 @@ body[data-role="coach"] .mobile-more-btn { display: none !important; }
         <div class="nav-item mobile-show" onclick="showPage('tournaments',this)"><span class="nav-icon">🏆</span><span>Tourneys</span></div>
         <div class="nav-item mobile-show" onclick="showPage('checkin',this)"><span class="nav-icon">✅</span><span>Check-in</span></div>
         <div class="nav-section">Players</div>
-        <div class="nav-item mobile-show" onclick="showPage('roster',this)"><span class="nav-icon">👥</span><span>Roster</span></div>
+        <div class="nav-item" onclick="showPage('roster',this)"><span class="nav-icon">👥</span><span>Roster</span></div>
         <div class="nav-item" onclick="showPage('attendance',this)"><span class="nav-icon">📊</span><span>Responses</span></div>
         <div class="nav-section">Settings</div>
         <div class="nav-item" onclick="showPage('calendar',this)"><span class="nav-icon">📆</span><span>Calendar</span></div>
         <div class="nav-item" onclick="showPage('coach-management',this)"><span class="nav-icon">🧑‍💼</span><span>Coaches</span></div>
         <div class="nav-item" onclick="showPage('settings',this)"><span class="nav-icon">⚙️</span><span>Settings</span></div>
-        <div class="nav-item" onclick="window.open('https://www.jcarroll.com/collections/3ball','_blank')"><span class="nav-icon">🛒</span><span>Store</span></div>
+        <div class="nav-item desktop-only" onclick="window.open('https://www.jcarroll.com/collections/3ball','_blank')"><span class="nav-icon">🛒</span><span>Store</span></div>
         <!-- Mobile-only "More" button -->
         <div class="nav-item mobile-show mobile-more-btn" onclick="openMobileMoreMenu()"><span class="nav-icon">☰</span><span>More</span></div>
       </div>
@@ -861,12 +855,14 @@ body[data-role="coach"] .mobile-more-btn { display: none !important; }
   <div class="nav-item mobile-show" onclick="showPage('checkin',this)"><span class="nav-icon">✅</span><span>Check-in</span></div>
 
   <div class="nav-section">Players</div>
-  <div class="nav-item mobile-show" onclick="showPage('roster',this)"><span class="nav-icon">👥</span><span>Roster</span></div>
-  <div class="nav-item mobile-show" onclick="showPage('attendance',this)"><span class="nav-icon">📊</span><span>Responses</span></div>
+  <div class="nav-item" onclick="showPage('roster',this)"><span class="nav-icon">👥</span><span>Roster</span></div>
+  <div class="nav-item" onclick="showPage('attendance',this)"><span class="nav-icon">📊</span><span>Responses</span></div>
 
   <div class="nav-section">Settings</div>
-  <div class="nav-item mobile-show" onclick="showPage('coach-calendar',this)"><span class="nav-icon">📆</span><span>Calendar</span></div>
-  <div class="nav-item mobile-show" onclick="window.open('https://www.jcarroll.com/collections/3ball','_blank')"><span class="nav-icon">🛒</span><span>Store</span></div>
+  <div class="nav-item" onclick="showPage('coach-calendar',this)"><span class="nav-icon">📆</span><span>Calendar</span></div>
+  <div class="nav-item desktop-only" onclick="window.open('https://www.jcarroll.com/collections/3ball','_blank')"><span class="nav-icon">🛒</span><span>Store</span></div>
+  <!-- Mobile-only "More" button -->
+  <div class="nav-item mobile-show mobile-more-btn" onclick="openMobileMoreMenu()"><span class="nav-icon">☰</span><span>More</span></div>
 </div>
       <div class="nav" id="player-nav" style="display:none;">
         <div class="nav-section">My Portal</div>
@@ -4703,27 +4699,48 @@ function openMobileMoreMenu() {
     // fallback: pick any visible
     activeNav = document.getElementById('coach-nav') || document.getElementById('player-nav');
   }
-  // Get all nav-items NOT marked mobile-show, and not the More button itself
-  const items = activeNav.querySelectorAll('.nav-item:not(.mobile-show)');
+  // Get all nav-items NOT in the bar already, and not desktop-only (e.g. coach Store)
+  const items = activeNav.querySelectorAll('.nav-item:not(.mobile-show):not(.desktop-only)');
   const list = document.getElementById('mobile-more-list');
-  if (!items.length) {
-    list.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-secondary);">No more options</div>';
-  } else {
-    list.innerHTML = Array.from(items).map(item => {
-      const icon = item.querySelector('.nav-icon')?.textContent || '•';
-      const text = item.querySelector('span:not(.nav-icon)')?.textContent || '';
-      const onclick = item.getAttribute('onclick');
-      return `<div onclick="closeModal('mobile-more-modal');${onclick}" style="
-        display:flex;align-items:center;gap:14px;padding:14px 16px;
-        border-radius:8px;cursor:pointer;font-size:15px;color:var(--text);
-        margin-bottom:4px;transition:background 0.15s;
-        " onmouseover="this.style.background='var(--gray-bg)'"
-          onmouseout="this.style.background=''">
-        <span style="font-size:22px;">${icon}</span>
-        <span style="font-weight:500;">${text}</span>
+  let html = !items.length
+    ? '<div style="padding:24px;text-align:center;color:var(--text-secondary);">No more options</div>'
+    : Array.from(items).map(item => {
+        const icon = item.querySelector('.nav-icon')?.textContent || '•';
+        const text = item.querySelector('span:not(.nav-icon)')?.textContent || '';
+        const onclick = item.getAttribute('onclick');
+        return `<div onclick="closeModal('mobile-more-modal');${onclick}" style="
+          display:flex;align-items:center;gap:14px;padding:14px 16px;
+          border-radius:8px;cursor:pointer;font-size:15px;color:var(--text);
+          margin-bottom:4px;transition:background 0.15s;
+          " onmouseover="this.style.background='var(--gray-bg)'"
+            onmouseout="this.style.background=''">
+          <span style="font-size:22px;">${icon}</span>
+          <span style="font-weight:500;">${text}</span>
+        </div>`;
+      }).join('');
+
+  // Parent-only: append "Viewing Player" switcher when 2+ kids on this account.
+  if (activeNav.id === 'player-nav' && state.currentParent) {
+    const myPlayers = state.players.filter(p => p.parentId === state.currentParent.id);
+    if (myPlayers.length >= 2) {
+      const activeId = state.currentUser ? state.currentUser.id : null;
+      html += `<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--gray-border);">
+        <div style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;padding:0 16px 8px;">Viewing Player</div>
+        ${myPlayers.map(p => {
+          const active = activeId === p.id;
+          return `<div onclick="closeModal('mobile-more-modal');switchPlayer('${p.id}')" style="
+            display:flex;align-items:center;gap:12px;padding:12px 16px;border-radius:8px;cursor:pointer;
+            background:${active?'var(--orange-light)':'transparent'};margin-bottom:4px;">
+            <div style="width:32px;height:32px;border-radius:50%;background:var(--orange);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;flex-shrink:0;">${p.first[0]}${p.last[0]}</div>
+            <div style="flex:1;font-weight:${active?700:500};color:var(--text);">${p.first} ${p.last}</div>
+            ${active ? '<span style="color:var(--orange);font-size:18px;">●</span>' : ''}
+          </div>`;
+        }).join('')}
       </div>`;
-    }).join('');
+    }
   }
+
+  list.innerHTML = html;
   openModal('mobile-more-modal');
 }
 
