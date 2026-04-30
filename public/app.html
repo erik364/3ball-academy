@@ -3538,7 +3538,7 @@ function renderPlayerHome() {
     if (rsvpVal === 'yes') rsvpPill = '<span class="pill pill-green">Going ✓</span>';
     else if (rsvpVal === 'no') rsvpPill = '<span class="pill pill-red">Not going ✗</span>';
     else rsvpPill = '<span class="pill pill-gray">Not yet answered</span>';
-    return `<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--gray-border);">
+    return `<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--gray-border);cursor:pointer;" onclick="showSessionRoster('${pr.id}','practice')">
       <div style="flex:1;"><div style="font-size:13px;font-weight:500;">${pr.groups.join(', ')} @ ${pr.location}</div>
       <div style="font-size:11px;color:var(--text-secondary);">${fmtDate(pr.date)} · ${fmtTime(pr.start)}–${fmtTime(pr.end)}</div></div>
       ${rsvpPill}
@@ -3548,7 +3548,7 @@ function renderPlayerHome() {
   const tourns = state.tournaments.filter(t=>t.startDate>=today()&&(t.groups.includes(p.team)||!t.groups.length));
   const pt = document.getElementById('player-tournaments-home');
   pt.innerHTML = tourns.length ? tourns.map(t=>`
-    <div style="padding:10px 14px;border-bottom:1px solid var(--gray-border);">
+    <div style="padding:10px 14px;border-bottom:1px solid var(--gray-border);cursor:pointer;" onclick="showSessionRoster('${t.id}','tournament')">
       <div style="font-size:13px;font-weight:500;">${t.name}</div>
       <div style="font-size:11px;color:var(--text-secondary);">${fmtDate(t.startDate)} · ${t.location}</div>
     </div>`).join('') : '<div class="empty"><div class="empty-icon">🏆</div><div class="empty-text">No upcoming tournaments</div></div>';
@@ -3626,13 +3626,12 @@ function renderPlayerScheduleFilter(filter) {
         </div>`;
     }
 
-    return `<tr>
+    return `<tr style="cursor:pointer;" onclick="if(!event.target.closest('button'))showSessionRoster('${item.id}','${item._type}')">
       <td><div style="font-weight:500;">${fmtDate(item.date)}</div><div style="font-size:11px;color:var(--text-secondary);">${timeStr}</div></td>
       <td>${typeTag}</td>
       <td>${item.location||item.name||'—'}</td>
       <td>${attendingCell}</td>
     </tr>`;
-  }).join('');
 }
 
 async function setRsvp(sessionId, type, answer) {
@@ -4453,53 +4452,91 @@ function switchPlayer(playerId) {
 }
 
 // ===== TOURNAMENT ROSTER MODAL =====
-function showTournRoster(tournId) {
-  const t = state.tournaments.find(x => x.id === tournId);
-  if (!t) return;
-  document.getElementById('tourn-roster-title').textContent = t.name + ' — Who\'s Going';
-  const rsvpObj = t.rsvp || {};
-  const yesIds = Object.keys(rsvpObj).filter(id => rsvpObj[id]==='yes');
-  const noIds  = Object.keys(rsvpObj).filter(id => rsvpObj[id]==='no');
-  
-  // Group yes players by team
+// Unified session roster modal — works for practices and tournaments
+function showSessionRoster(sessionId, type) {
+  const session = type === 'practice'
+    ? state.practices.find(x => x.id === sessionId)
+    : state.tournaments.find(x => x.id === sessionId);
+  if (!session) return;
+
+  const isPractice = type === 'practice';
+  const titleText = isPractice
+    ? `${session.groups.join(', ')} @ ${session.location} — ${fmtDate(session.date)}`
+    : `${session.name} — ${fmtDate(session.startDate)}${session.startDate !== session.endDate ? ' – ' + fmtDate(session.endDate) : ''}`;
+  document.getElementById('tourn-roster-title').textContent = titleText;
+
+  const rsvpObj = session.rsvp || {};
+  const sessionGroups = session.groups || [];
+
+  // All players whose team is in this session's groups
+  const eligiblePlayers = state.players.filter(p => sessionGroups.includes(p.team));
+
+  // Bucket by team, then by RSVP status
   const teams = {};
-  yesIds.forEach(id => {
-    const p = state.players.find(x=>x.id===id);
-    if (!p) return;
-    if (!teams[p.team]) teams[p.team] = [];
-    teams[p.team].push(p);
+  eligiblePlayers.forEach(p => {
+    if (!teams[p.team]) teams[p.team] = { yes: [], no: [], pending: [] };
+    const ans = rsvpObj[p.id];
+    if (ans === 'yes') teams[p.team].yes.push(p);
+    else if (ans === 'no') teams[p.team].no.push(p);
+    else teams[p.team].pending.push(p);
   });
 
   const TEAM_ORDER = ['T','C','B','G','O','3BHS','3BGals'];
-  let html = '';
-  if (!yesIds.length) {
-    html = '<div class="empty"><div class="empty-icon">🏆</div><div class="empty-text">No responses yet</div></div>';
-  } else {
-    const sortedTeams = TEAM_ORDER.filter(t=>teams[t]).concat(Object.keys(teams).filter(t=>!TEAM_ORDER.includes(t)));
-    sortedTeams.forEach(team => {
-      const players = teams[team];
-      html += `<div style="margin-bottom:14px;">
-        <div style="font-size:11px;font-weight:700;color:var(--orange-mid);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;padding-bottom:4px;border-bottom:2px solid var(--orange-light);">${team} — ${players.length} going</div>
-        <div style="display:flex;flex-wrap:wrap;gap:6px;">
-          ${players.map(p=>`<div style="display:flex;align-items:center;gap:6px;background:var(--gray-bg);border-radius:6px;padding:4px 10px 4px 5px;font-size:12px;">
-            <div class="av av-${teamColor(p.team)}" style="width:22px;height:22px;font-size:8px;">${initials(p)}</div>
-            ${p.first} ${p.last}${p.jersey?' <span style="font-size:10px;color:var(--text-secondary);">#'+p.jersey+'</span>':''}
-          </div>`).join('')}
-        </div>
-      </div>`;
-    });
-  }
+  const sortedTeams = TEAM_ORDER.filter(t => teams[t]).concat(Object.keys(teams).filter(t => !TEAM_ORDER.includes(t)));
 
-  if (noIds.length) {
-    html += `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--gray-border);">
-      <div style="font-size:11px;font-weight:600;color:var(--text-secondary);margin-bottom:4px;">Not going (${noIds.length})</div>
-      <div style="font-size:12px;color:var(--text-secondary);">${noIds.map(id=>{const p=state.players.find(x=>x.id===id);return p?p.first+' '+p.last:'';}).filter(Boolean).join(', ')}</div>
-    </div>`;
+  let html = '';
+  if (!sortedTeams.length) {
+    html = '<div class="empty"><div class="empty-icon">👥</div><div class="empty-text">No players found for this session</div></div>';
+  } else {
+    sortedTeams.forEach(team => {
+      const t = teams[team];
+      const totalEligible = t.yes.length + t.no.length + t.pending.length;
+      html += `<div style="margin-bottom:18px;">
+        <div style="font-size:11px;font-weight:700;color:var(--orange-mid);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px;padding-bottom:4px;border-bottom:2px solid var(--orange-light);display:flex;align-items:center;gap:8px;">
+          <span>${team}</span>
+          <span style="color:var(--text-secondary);font-weight:500;">— ${t.yes.length} of ${totalEligible} going</span>
+        </div>`;
+
+      if (t.yes.length) {
+        html += `<div style="margin-bottom:8px;">
+          <div style="font-size:10px;color:var(--teal-dark);font-weight:600;margin-bottom:4px;">Going (${t.yes.length})</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;">
+            ${t.yes.map(p => `<div style="display:flex;align-items:center;gap:6px;background:var(--teal-light);border:1px solid #9FE1CB;border-radius:6px;padding:4px 10px 4px 5px;font-size:12px;">
+              <div class="av av-${teamColor(p.team)}" style="width:22px;height:22px;font-size:8px;">${initials(p)}</div>
+              ${p.first} ${p.last}${p.jersey ? ' <span style="font-size:10px;color:var(--text-secondary);">#'+p.jersey+'</span>' : ''}
+            </div>`).join('')}
+          </div>
+        </div>`;
+      }
+
+      if (t.no.length) {
+        html += `<div style="margin-bottom:8px;">
+          <div style="font-size:10px;color:#A32D2D;font-weight:600;margin-bottom:4px;">Not going (${t.no.length})</div>
+          <div style="font-size:12px;color:var(--text-secondary);">
+            ${t.no.map(p => p.first + ' ' + p.last).join(', ')}
+          </div>
+        </div>`;
+      }
+
+      if (t.pending.length) {
+        html += `<div>
+          <div style="font-size:10px;color:var(--text-secondary);font-weight:600;margin-bottom:4px;">No response yet (${t.pending.length})</div>
+          <div style="font-size:12px;color:var(--text-secondary);">
+            ${t.pending.map(p => p.first + ' ' + p.last).join(', ')}
+          </div>
+        </div>`;
+      }
+
+      html += `</div>`;
+    });
   }
 
   document.getElementById('tourn-roster-body').innerHTML = html;
   openModal('tourn-roster-modal');
 }
+
+// Backwards-compatibility alias for any older callers
+function showTournRoster(tournId) { showSessionRoster(tournId, 'tournament'); }
 
 // ===== COACH RSVP ON PRACTICES =====
 function renderCoachPractices() {
