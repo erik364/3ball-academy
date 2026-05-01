@@ -1167,7 +1167,7 @@ body:not([data-role="admin"]) .btn.admin-only {
           </div>
         </div>
 
-        <!-- PLAYER SCHEDULE (with RSVP Yes Y/N + inline check-in) -->
+        <!-- PLAYER SCHEDULE (RSVP only — check-in is admin/coach-side) -->
         <div class="page" id="page-player-schedule">
           <div class="section-header"><span class="section-title" id="player-sched-title">My Schedule</span></div>
           <div class="panel">
@@ -1465,10 +1465,6 @@ body:not([data-role="admin"]) .btn.admin-only {
       <div style="display:flex;gap:8px;margin-bottom:16px;">
         <button id="cal-rsvp-yes" class="btn" style="flex:1;padding:10px;" onclick="calEventRsvp('yes')">✓ Going</button>
         <button id="cal-rsvp-no"  class="btn" style="flex:1;padding:10px;" onclick="calEventRsvp('no')">✗ RSVP No</button>
-      </div>
-      <div id="cal-checkin-row" style="display:none;">
-        <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:8px;">Player Check-in</div>
-        <button id="cal-checkin-btn" class="btn btn-primary" style="width:100%;padding:10px;" onclick="calEventCheckin()">Check In Now</button>
       </div>
     </div>
   </div>
@@ -3489,16 +3485,6 @@ async function setRsvp(sessionId, type, answer) {
   }
 }
 
-function playerSelfCheckin(practiceId) {
-  const p = state.currentUser;
-  const pr = state.practices.find(x=>x.id===practiceId);
-  if (pr && !pr.checkedIn.includes(p.id)) pr.checkedIn.push(p.id);
-  renderPlayerScheduleFilter(currentSchedFilter);
-  toast("You're checked in! 🏀");
-}
-
-function renderPlayerCheckin() { renderPlayerScheduleFilter('all'); }
-
 function renderCalendar(containerId, mode) {
   // mode can be: false (player), true (admin/full), 'coach-teams' (non-admin coach filtered to their teams)
   const container = document.getElementById(containerId);
@@ -3568,15 +3554,13 @@ function renderCalendar(containerId, mode) {
     const evs = byDay[d]||[];
     let evHtml = '';
     evs.slice(0,3).forEach(e => {
-      const checkedIn = e.type==='practice' && ((state.practices.find(p=>p.id===e.id)||{}).checkedIn||[]).includes(state.currentUser&&state.currentUser.id);
       const rsvpObj = e.type==='practice'
         ? ((state.practices.find(p=>p.id===e.id)||{}).rsvp||{})
         : ((state.tournaments.find(t=>t.id===e.id)||{}).rsvp||{});
       const rsvpd = isPlayer ? rsvpObj[state.currentUser&&state.currentUser.id] : null;
       let indicator = '';
       if (isPlayer) {
-        if (checkedIn) indicator = ' <span style="color:var(--teal);font-weight:700;">✓</span>';
-        else if (rsvpd === 'yes') indicator = ' <span style="color:var(--teal-dark);">●</span>';
+        if (rsvpd === 'yes') indicator = ' <span style="color:var(--teal-dark);">●</span>';
         else if (rsvpd === 'no') indicator = ' <span style="color:#A32D2D;">✗</span>';
       }
       const bg = e.type==='practice' ? 'var(--blue-light)' : 'var(--orange-light)';
@@ -3592,7 +3576,7 @@ function renderCalendar(containerId, mode) {
   }
   const remaining = (firstDay + daysInMonth) % 7;
   if (remaining > 0) { for (let i=0; i<(7-remaining); i++) cells += `<div style="min-height:72px;border-right:0.5px solid var(--gray-border);border-bottom:0.5px solid var(--gray-border);background:var(--gray-bg);"></div>`; }
-  const legendExtra = isPlayer ? '<span style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;"><span style="color:var(--teal);font-weight:700;">✓</span> Checked in</span><span style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;"><span style="color:var(--teal-dark);">●</span> Going</span><span style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;"><span style="color:#A32D2D;">✗</span> Not going</span><span style="font-size:12px;color:var(--orange-mid);font-weight:500;margin-left:6px;">💡 Tap any event to answer or check in</span>' : '';
+  const legendExtra = isPlayer ? '<span style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;"><span style="color:var(--teal-dark);">●</span> Going</span><span style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;"><span style="color:#A32D2D;">✗</span> Not going</span><span style="font-size:12px;color:var(--orange-mid);font-weight:500;margin-left:6px;">💡 Tap any event to RSVP</span>' : '';
   html += cells + '</div></div><div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:10px;"><span style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;border-radius:2px;display:inline-block;background:var(--blue-light);border:1px solid var(--blue);"></span>Practice</span><span style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;border-radius:2px;display:inline-block;background:var(--orange-light);border:1px solid var(--orange-mid);"></span>Tournament</span>'+legendExtra+'</div>';
   container.innerHTML = html;
 }
@@ -4074,7 +4058,6 @@ function openCalEventModal(id, type) {
   const isPractice = type === 'practice';
   const past = isPast(isPractice ? session.date : session.startDate);
   const rsvpVal = ((session.rsvp || {})[p.id]);
-  const checkedIn = isPractice && (session.checkedIn || []).includes(p.id);
 
   // Title — include player name for clarity
   const titleName = state.currentUser ? state.currentUser.first + (isPractice ? "'s Practice" : ' — ' + session.name) : (isPractice ? 'Practice' : session.name);
@@ -4124,26 +4107,6 @@ function openCalEventModal(id, type) {
     nBtn.style.cssText = `flex:1;padding:10px;background:${rsvpVal==='no'?'#E24B4A':'transparent'};color:${rsvpVal==='no'?'#fff':'#A32D2D'};border-color:${rsvpVal==='no'?'#E24B4A':'#F7C1C1'};`;
   }
 
-  // Check-in row — only for practices, today or past
-  const checkinRow = document.getElementById('cal-checkin-row');
-  const checkinBtn = document.getElementById('cal-checkin-btn');
-  if (isPractice && (session.date <= today())) {
-    checkinRow.style.display = 'block';
-    if (checkedIn) {
-      checkinBtn.textContent = '✓ Checked In';
-      checkinBtn.style.background = 'var(--teal)';
-      checkinBtn.style.borderColor = 'var(--teal)';
-      checkinBtn.disabled = false;
-    } else {
-      checkinBtn.textContent = 'Check In Now';
-      checkinBtn.style.background = '';
-      checkinBtn.style.borderColor = '';
-      checkinBtn.disabled = false;
-    }
-  } else {
-    checkinRow.style.display = 'none';
-  }
-
   openModal('cal-event-modal');
 }
 
@@ -4159,21 +4122,6 @@ function calEventRsvp(answer) {
   openCalEventModal(_calEventId, _calEventType);
   renderCalendar('player-calendar-container', false);
   toast(answer === 'yes' ? 'Marked as going 🏀' : 'Marked as not going.');
-}
-
-function calEventCheckin() {
-  const p = state.currentUser;
-  const pr = state.practices.find(x => x.id === _calEventId);
-  if (!pr) return;
-  if (pr.checkedIn.includes(p.id)) {
-    pr.checkedIn = pr.checkedIn.filter(id => id !== p.id);
-    toast('Check-in removed.');
-  } else {
-    pr.checkedIn.push(p.id);
-    toast("You're checked in! 🏀");
-  }
-  openCalEventModal(_calEventId, _calEventType);
-  renderCalendar('player-calendar-container', false);
 }
 
 // ===== PAYMENT TRACKING =====
