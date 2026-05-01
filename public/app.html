@@ -599,10 +599,6 @@ tbody td { padding: 10px 14px; color: var(--text); vertical-align: middle; }
   #player-switcher { display: none !important; }
   /* Expand sidebar when parent has switcher active - show at top via bottom nav */
 
-  /* Coach practice list - stack RSVP buttons */
-  #coach-practice-list > div { flex-wrap: wrap !important; }
-  #coach-practice-list > div > div[style*="flex:1"] { width: 100%; }
-
   /* Schedule page - YES/NO buttons more tappable */
   #player-schedule-table .btn { padding: 8px 12px !important; font-size: 13px !important; min-height: 36px; }
   
@@ -1275,10 +1271,6 @@ body:not([data-role="admin"]) .btn.admin-only {
         <!-- COACH SCHEDULE (non-admin coach view) -->
         <div class="page" id="page-coach-schedule">
           <div class="section-header"><span class="section-title">My Schedule</span></div>
-          <div class="panel" style="margin-bottom:14px;">
-            <div class="panel-header"><span class="panel-title">📅 Will you be at practice?</span></div>
-            <div id="coach-practice-list"><div class="empty"><div class="empty-icon">📅</div><div class="empty-text">Loading…</div></div></div>
-          </div>
           <div id="coach-schedule-content"></div>
         </div>
 
@@ -1962,8 +1954,7 @@ async function loadCoaches() {
         notes: row.notes || '',
         coachIds: row.coach_ids || [],
         checkedIn: [],
-        rsvp: {},
-        coachRsvp: {}
+        rsvp: {}
       };
     });
   } catch (e) { console.error('loadPractices threw:', e); }
@@ -1988,7 +1979,6 @@ async function loadTournaments() {
         coachIds: [],          // moved to tournament_games — empty for now
         checkedIn: [],
         rsvp: {},
-        coachRsvp: {},
         games: []              // placeholder for games we'll load in next commit
       };
     });
@@ -2854,28 +2844,8 @@ function renderCheckinGrid() {
   if (teamFilter) players = players.filter(p => p.team === teamFilter);
   if (search) players = players.filter(p => (p.first+' '+p.last).toLowerCase().includes(search));
 
-  // Also build coach list for this session
-  const coachIds = session.coachRsvp ? Object.keys(session.coachRsvp).filter(id => session.coachRsvp[id]==='yes') : [];
-  const attendingCoaches = state.coaches ? state.coaches.filter(c => coachIds.includes(c.id)) : [];
-
   const grid = document.getElementById('checkin-grid');
   let gridHTML = '';
-  // Show coaches first if any confirmed
-  if (attendingCoaches.length) {
-    gridHTML += `<div style="grid-column:1/-1;font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;padding:4px 0 2px;">Coaches</div>`;
-    gridHTML += attendingCoaches.map(c => {
-      const checked = (session.coachCheckedIn||[]).includes(c.id);
-      return `<div class="checkin-card ${checked?'checked':''}" onclick="toggleCoachCheckin('${id}','${type}','${c.id}')">
-        <div class="av" style="width:26px;height:26px;font-size:9px;background:var(--green-dark);color:#fff;">${(c.first||'C')[0]}${(c.last||'')[0]}</div>
-        <div>
-          <div class="checkin-name">${c.first||''} ${c.last||''}</div>
-          <div class="checkin-team" style="color:var(--green-mid);">Coach</div>
-        </div>
-        <div class="checkin-status">${checked ? '✅' : '⬜'}</div>
-      </div>`;
-    }).join('');
-    gridHTML += `<div style="grid-column:1/-1;font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;padding:8px 0 2px;border-top:1px solid var(--gray-border);margin-top:4px;">Players</div>`;
-  }
   gridHTML += players.map(p => {
     const checked = session.checkedIn.includes(p.id);
     return `<div class="checkin-card ${checked?'checked':''}" onclick="toggleCheckin('${id}','${type}','${p.id}')">
@@ -3803,19 +3773,25 @@ function renderCoachSchedule() {
   const coach = state.currentCoach;
   if (!coach) return;
   const container = document.getElementById('coach-schedule-content');
+  if (!container) return;
 
-  // practices assigned to this coach
-  const myPractices = state.practices.filter(p => p.coachIds && p.coachIds.includes(coach.id));
-  // Tournaments don't have coaches at the container level anymore. Per-game coaches come in next commit.
-  const myTournaments = state.tournaments.filter(t => t.coachIds && t.coachIds.includes(coach.id));
+  // Practices the coach is assigned to (via coach_ids in practices table)
+  const myPractices = state.practices.filter(p =>
+    p.coachIds && p.coachIds.includes(coach.id) && !isPast(p.date)
+  );
+
+  // Tournaments don't have container-level coach assignment after the
+  // schema redesign. Per-game coach assignment comes from tournament_games
+  // (next commit). For now, coach sees no tournaments here until games CRUD ships.
+  const myTournaments = [];
 
   const all = [
-    ...myPractices.map(p => ({ ...p, _type:'practice', _date: p.date })),
-    ...myTournaments.map(t => ({ ...t, _type:'tournament', _date: t.startDate }))
-  ].sort((a,b) => a._date.localeCompare(b._date));
+    ...myPractices.map(p => ({ ...p, _type: 'practice', _date: p.date })),
+    ...myTournaments.map(t => ({ ...t, _type: 'tournament', _date: t.startDate }))
+  ].sort((a, b) => a._date.localeCompare(b._date));
 
   if (!all.length) {
-    container.innerHTML = '<div class="empty"><div class="empty-icon">📅</div><div class="empty-text">No sessions assigned to you yet</div></div>';
+    container.innerHTML = '<div class="panel"><div class="empty"><div class="empty-icon">📅</div><div class="empty-text">No upcoming sessions assigned to you</div></div></div>';
     return;
   }
 
@@ -3824,47 +3800,26 @@ function renderCoachSchedule() {
       <div class="panel-header"><span class="panel-title">Upcoming sessions assigned to you</span></div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Date</th><th>Session</th><th>Teams</th><th>Location</th><th>Going?</th></tr></thead>
+          <thead><tr><th>Date</th><th>Session</th><th>Teams</th><th>Location</th></tr></thead>
           <tbody>
             ${all.map(item => {
-              const past = isPast(item._type==='practice' ? item.date : item.startDate);
-              const rsvp = (item.coachRsvp || {})[coach.id];
-              const isYes = rsvp === 'yes', isNo = rsvp === 'no';
               const label = item._type === 'practice'
                 ? `${fmtDate(item.date)} ${fmtTime(item.start)}–${fmtTime(item.end)}`
                 : `${fmtDate(item.startDate)}${item.startDate!==item.endDate?' – '+fmtDate(item.endDate):''}`;
               const name = item._type === 'tournament' ? `🏆 ${item.name}` : '📅 Practice';
+              const teams = (item.groups || []).join(', ') || '—';
+              const loc = item.location || '—';
               return `<tr>
                 <td style="white-space:nowrap;">${label}</td>
                 <td>${name}</td>
-                <td>${(item.groups||[]).join(', ')}</td>
-                <td>${item.location || '—'}</td>
-                <td>
-                  ${past ? `<span class="pill pill-gray">${rsvp ? (isYes?'Attended':'Missed') : 'Past'}</span>` : `
-                  <div style="display:flex;gap:6px;">
-                    <button class="btn btn-sm" onclick="setCoachRsvp('${item.id}','${item._type}','yes')"
-                      style="background:${isYes?'var(--teal)':'transparent'};color:${isYes?'#fff':'var(--teal-dark)'};border-color:${isYes?'var(--teal)':'#9FE1CB'};">✓ Yes</button>
-                    <button class="btn btn-sm" onclick="setCoachRsvp('${item.id}','${item._type}','no')"
-                      style="background:${isNo?'#E24B4A':'transparent'};color:${isNo?'#fff':'#A32D2D'};border-color:${isNo?'#E24B4A':'#F7C1C1'};">✗ No</button>
-                  </div>`}
-                </td>
+                <td>${teams}</td>
+                <td>${loc}</td>
               </tr>`;
             }).join('')}
           </tbody>
         </table>
       </div>
     </div>`;
-}
-
-function setCoachRsvp(sessionId, type, answer) {
-  const coach = state.currentCoach;
-  if (!coach) return;
-  const session = type === 'practice' ? state.practices.find(p=>p.id===sessionId) : state.tournaments.find(t=>t.id===sessionId);
-  if (!session) return;
-  if (!session.coachRsvp) session.coachRsvp = {};
-  session.coachRsvp[coach.id] = answer;
-  renderCoachSchedule();
-  toast(answer === 'yes' ? '✓ Marked as going' : '✗ Marked as not going');
 }
 
 function renderCoachRoster() {
@@ -4319,47 +4274,6 @@ function showSessionRoster(sessionId, type) {
 
 // Backwards-compatibility alias for any older callers
 function showTournRoster(tournId) { showSessionRoster(tournId, 'tournament'); }
-
-// ===== COACH RSVP ON PRACTICES =====
-function renderCoachPractices() {
-  const coach = state.currentUser;
-  const upcoming = state.practices.filter(p => !isPast(p.date) && p.groups.some(g => (coach.teams||[]).includes(g)));
-  const past = state.practices.filter(p => isPast(p.date) && p.groups.some(g => (coach.teams||[]).includes(g)));
-  const allItems = [...upcoming, ...past].sort((a,b) => b.date.localeCompare(a.date));
-  
-  const container = document.getElementById('coach-practice-list');
-  if (!container) return;
-  if (!allItems.length) {
-    container.innerHTML = '<div class="empty"><div class="empty-icon">📅</div><div class="empty-text">No practices for your teams</div></div>';
-    return;
-  }
-  container.innerHTML = allItems.map(p => {
-    const myRsvp = (p.coachRsvp||{})[coach.id];
-    const isYes = myRsvp === 'yes';
-    const isNo  = myRsvp === 'no';
-    const past = isPast(p.date);
-    return `<div style="padding:12px 16px;border-bottom:1px solid var(--gray-border);display:flex;align-items:center;gap:12px;">
-      <div style="flex:1;">
-        <div style="font-size:13px;font-weight:500;">${fmtDate(p.date)} — ${p.groups.join(', ')}</div>
-        <div style="font-size:11px;color:var(--text-secondary);">${fmtTime(p.start)}–${fmtTime(p.end)} @ ${p.location}</div>
-      </div>
-      ${past ? '<span class="pill pill-gray">Past</span>' : `<div style="display:flex;gap:5px;">
-        <button class="btn btn-sm" onclick="setCoachRsvp('${p.id}','yes')" style="background:${isYes?'var(--teal)':'transparent'};color:${isYes?'#fff':'var(--teal-dark)'};border-color:${isYes?'var(--teal)':'#9FE1CB'};">✓ Going</button>
-        <button class="btn btn-sm" onclick="setCoachRsvp('${p.id}','no')" style="background:${isNo?'#E24B4A':'transparent'};color:${isNo?'#fff':'#A32D2D'};border-color:${isNo?'#E24B4A':'#F7C1C1'};">✗ Can't</button>
-      </div>`}
-    </div>`;
-  }).join('');
-}
-
-function setCoachRsvp(practiceId, answer) {
-  const coach = state.currentUser;
-  const pr = state.practices.find(x => x.id === practiceId);
-  if (!pr) return;
-  if (!pr.coachRsvp) pr.coachRsvp = {};
-  pr.coachRsvp[coach.id] = answer;
-  renderCoachPractices();
-  toast(answer === 'yes' ? 'Marked as going 🏀' : 'Marked as unavailable.');
-}
 
 // ===== ATTENDANCE MONTHLY SUMMARY =====
 function renderAttendanceSummary() {
