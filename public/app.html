@@ -1554,28 +1554,10 @@ body:not([data-role="admin"]) .btn.admin-only {
         <div class="form-group"><label class="form-label">Start Date</label><input class="form-input" id="t-start" type="date"></div>
         <div class="form-group"><label class="form-label">End Date</label><input class="form-input" id="t-end" type="date"></div>
       </div>
-      <div class="form-group"><label class="form-label">Location</label><input class="form-input" id="t-location" placeholder="Venue name, City, CA"></div>
-      <div class="form-group"><label class="form-label">Address</label><input class="form-input" id="t-address" placeholder="Street address"></div>
-      <div class="form-group">
-        <label class="form-label">Participating Groups</label>
-        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px;" id="t-groups">
-          <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;"><input type="checkbox" value="T" style="accent-color:var(--green-dark);"> T</label>
-          <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;"><input type="checkbox" value="C" style="accent-color:var(--green-dark);"> C</label>
-          <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;"><input type="checkbox" value="B" style="accent-color:var(--green-dark);"> B</label>
-          <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;"><input type="checkbox" value="G" style="accent-color:var(--green-dark);"> G</label>
-          <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;"><input type="checkbox" value="O" style="accent-color:var(--green-dark);"> O</label>
-          <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;"><input type="checkbox" value="3BHS" style="accent-color:var(--green-dark);"> 3BHS</label>
-          <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;"><input type="checkbox" value="3BGals" style="accent-color:var(--green-dark);"> 3BGals</label>
-        </div>
-      </div>
       <div class="form-group"><label class="form-label">Notes</label><textarea class="form-textarea" id="t-notes" placeholder="Game times, parking info, what to bring…"></textarea></div>
-      <div class="form-group">
-        <label class="form-label">Result (after event)</label>
-        <input class="form-input" id="t-result" placeholder="e.g. Champions, 3rd place…">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Assigned Coaches</label>
-        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;" id="t-coaches"></div>
+      <div class="form-help" style="margin-top:8px;font-size:12px;color:var(--text-secondary);">
+        💡 After saving, add games (date, time, location, opponent, coaches) on the
+        tournament details page.
       </div>
     </div>
     <div class="modal-footer">
@@ -1998,15 +1980,16 @@ async function loadTournaments() {
         name: row.name,
         startDate: row.start_date,
         endDate: row.end_date || row.start_date,
-        location: row.location || '',
+        location: '',          // moved to tournament_games — show empty for now
         address: '',
         notes: row.notes || '',
         result: '',
-        groups: row.groups || [],
-        coachIds: row.coach_ids || [],
+        groups: [],            // moved to tournament_games — empty for now
+        coachIds: [],          // moved to tournament_games — empty for now
         checkedIn: [],
         rsvp: {},
-        coachRsvp: {}
+        coachRsvp: {},
+        games: []              // placeholder for games we'll load in next commit
       };
     });
   } catch (e) { console.error('loadTournaments threw:', e); }
@@ -2679,12 +2662,9 @@ function renderTournaments() {
           </div>
           <span class="pill ${past ? 'pill-gray' : 'pill-orange'}">${past ? 'Past' : 'Upcoming'}</span>
         </div>
-        <div style="font-size:13px;margin-bottom:4px;">📍 ${t.location}</div>
-        ${t.address ? `<div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px;">${t.address}</div>` : ''}
-        <div style="margin-bottom:6px;">${t.groups.map(g=>`<span class="team-tag" style="background:var(--orange-light);color:var(--orange-mid);margin-right:3px;">${g}</span>`).join('')}</div>
+        <div style="font-size:13px;margin-bottom:4px;color:var(--text-secondary);font-style:italic;">📍 Games not yet added</div>
         ${teamSummary ? `<div style="margin-bottom:8px;padding:6px 8px;background:var(--gray-bg);border-radius:6px;display:flex;flex-wrap:wrap;gap:3px;align-items:center;"><span style="font-size:10px;font-weight:600;color:var(--text-secondary);margin-right:4px;">Going:</span>${teamSummary}</div>` : ''}
         ${t.notes ? `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;border-top:1px solid var(--gray-border);padding-top:8px;">${t.notes}</div>` : ''}
-        ${t.result ? `<div style="font-size:13px;font-weight:600;color:var(--teal);">Result: ${t.result}</div>` : ''}
         <div style="display:flex;gap:6px;margin-top:10px;border-top:1px solid var(--gray-border);padding-top:10px;" onclick="event.stopPropagation()">
           ${isAdmin ? `<button class="btn btn-sm" onclick="editTournament('${t.id}')">Edit</button>
           <button class="btn btn-sm btn-danger" onclick="deleteTournament('${t.id}')">Delete</button>` : ''}
@@ -2702,32 +2682,18 @@ function openTournamentModal(id) {
   document.getElementById('t-name').value = t ? t.name : '';
   document.getElementById('t-start').value = t ? t.startDate : '';
   document.getElementById('t-end').value = t ? t.endDate : '';
-  document.getElementById('t-location').value = t ? t.location : '';
-  document.getElementById('t-address').value = t ? t.address : '';
   document.getElementById('t-notes').value = t ? t.notes : '';
-  document.getElementById('t-result').value = t ? t.result : '';
-  document.querySelectorAll('#t-groups input').forEach(cb => { cb.checked = t ? t.groups.includes(cb.value) : false; });
-  // coaches
-  const assignedT = t?.coachIds || [];
-  document.getElementById('t-coaches').innerHTML = state.coaches.map(c =>
-    `<label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;padding:3px 8px;border-radius:4px;background:${assignedT.includes(c.id)?'var(--green-light)':'transparent'};border:1px solid ${assignedT.includes(c.id)?'var(--green-mid)':'var(--gray-border)'};">
-      <input type="checkbox" value="${c.id}" ${assignedT.includes(c.id)?'checked':''} style="accent-color:var(--green-dark);"> ${c.first} ${c.last}
-    </label>`).join('');
   openModal('tournament-modal');
 }
 function editTournament(id) { openTournamentModal(id); }
 async function saveTournament() {
   if (!document.getElementById('t-name').value || !document.getElementById('t-start').value) { alert('Name and start date required.'); return; }
-  const coachIdsT = [...document.querySelectorAll('#t-coaches input[type=checkbox]:checked')].map(c=>c.value);
   const startVal = document.getElementById('t-start').value;
   const row = {
     name: document.getElementById('t-name').value,
     start_date: startVal,
     end_date: document.getElementById('t-end').value || startVal,
-    location: document.getElementById('t-location').value,
-    notes: document.getElementById('t-notes').value,
-    groups: [...document.querySelectorAll('#t-groups input:checked')].map(c=>c.value),
-    coach_ids: coachIdsT
+    notes: document.getElementById('t-notes').value
   };
 
   if (!sb) { alert('Auth not ready.'); return; }
@@ -3366,7 +3332,7 @@ function renderPlayerHome() {
   pt.innerHTML = tourns.length ? tourns.map(t=>`
     <div style="padding:10px 14px;border-bottom:1px solid var(--gray-border);cursor:pointer;" onclick="showSessionRoster('${t.id}','tournament')">
       <div style="font-size:13px;font-weight:500;">${t.name}</div>
-      <div style="font-size:11px;color:var(--text-secondary);">${fmtDate(t.startDate)} · ${t.location}</div>
+      <div style="font-size:11px;color:var(--text-secondary);">${fmtDate(t.startDate)}${t.location ? ' · ' + t.location : ''}</div>
     </div>`).join('') : '<div class="empty"><div class="empty-icon">🏆</div><div class="empty-text">No upcoming tournaments</div></div>';
 }
 
@@ -3642,7 +3608,7 @@ function renderPlayerTournaments() {
     return `<div class="panel" style="cursor:pointer;" onclick="if(!event.target.closest('button'))showSessionRoster('${t.id}','tournament')"><div style="padding:14px 16px;">
       <div style="font-family:'Barlow Condensed',sans-serif;font-size:17px;font-weight:700;">${t.name}</div>
       <div style="font-size:12px;color:var(--text-secondary);margin-top:2px;margin-bottom:8px;">${fmtDate(t.startDate)}${t.startDate!==t.endDate?' – '+fmtDate(t.endDate):''}</div>
-      <div style="font-size:13px;margin-bottom:4px;">📍 ${t.location}</div>
+      <div style="font-size:13px;margin-bottom:4px;">📍 ${t.location || 'Details TBD'}</div>
       ${t.address?`<div style="font-size:11px;color:var(--text-secondary);margin-bottom:8px;">${t.address}</div>`:''}
       ${t.notes?`<div style="font-size:12px;color:var(--text-secondary);border-top:1px solid var(--gray-border);padding-top:8px;margin-top:4px;">${t.notes}</div>`:''}
       ${t.result?`<div style="font-size:13px;font-weight:600;color:var(--teal);margin-top:8px;">Result: ${t.result}</div>`:''}
@@ -3840,6 +3806,7 @@ function renderCoachSchedule() {
 
   // practices assigned to this coach
   const myPractices = state.practices.filter(p => p.coachIds && p.coachIds.includes(coach.id));
+  // Tournaments don't have coaches at the container level anymore. Per-game coaches come in next commit.
   const myTournaments = state.tournaments.filter(t => t.coachIds && t.coachIds.includes(coach.id));
 
   const all = [
