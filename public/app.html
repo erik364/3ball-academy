@@ -1036,14 +1036,17 @@ body:not([data-role="admin"]) .btn.admin-only {
                 <option>G</option><option>O</option><option>3BHS</option><option>3BGals</option>
               </select>
               <input class="form-input" style="width:180px;" id="roster-search" placeholder="Search…" oninput="renderRoster()">
-              <button class="btn btn-primary admin-only" onclick="openPlayerModal()">+ Add Player</button>
+              <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-secondary);cursor:pointer;">
+                <input type="checkbox" id="roster-show-inactive" onchange="renderRoster()">
+                Show inactive
+              </label>
             </div>
           </div>
           <div class="panel">
             <div class="table-wrap">
               <table>
                 <thead><tr>
-                  <th>Player</th><th>#</th><th>Team</th><th>Grad Year</th><th>Parent/Guardian</th><th>Waiver</th><th>Attendance Rate</th><th>Last Paid</th><th>Current Month</th><th></th>
+                  <th>Player</th><th>#</th><th>Team</th><th>Grad Year</th><th>Parent/Guardian</th><th>Waiver</th><th>Attendance Rate</th><th>Last Paid</th><th>Current Month</th><th>Status</th>
                 </tr></thead>
                 <tbody id="roster-table"></tbody>
               </table>
@@ -1347,6 +1350,7 @@ body:not([data-role="admin"]) .btn.admin-only {
         </div>
         <div class="form-group"><label class="form-label">Grad Year</label><input class="form-input" id="ch-grad" placeholder="2028"></div>
       </div>
+      <div class="form-group"><label class="form-label">Jersey #</label><input class="form-input" id="ch-jersey" placeholder="—" maxlength="3"></div>
       <label class="form-check" style="margin-top:4px;">
         <input type="checkbox" id="ch-waiver" style="accent-color:var(--green-dark);">
         <span class="form-check-label">Waiver agreed</span>
@@ -1586,53 +1590,6 @@ body:not([data-role="admin"]) .btn.admin-only {
 </div>
 
 <!-- Player Modal -->
-<div class="modal-overlay" id="player-modal">
-  <div class="modal">
-    <div class="modal-header">
-      <span class="modal-title" id="player-modal-title">Add Player</span>
-      <button class="modal-close" onclick="closeModal('player-modal')">×</button>
-    </div>
-    <div class="modal-body">
-      <div class="form-row">
-        <div class="form-group"><label class="form-label">First Name</label><input class="form-input" id="pm-first" placeholder="First"></div>
-        <div class="form-group"><label class="form-label">Last Name</label><input class="form-input" id="pm-last" placeholder="Last"></div>
-      </div>
-      <div class="form-group"><label class="form-label">Email</label><input class="form-input" id="pm-email" type="email" placeholder="player@email.com"></div>
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">Team</label>
-          <select class="form-select" id="pm-team">
-            <option value="">Select...</option>
-            <option>T</option><option>C</option><option>B</option>
-            <option>G</option><option>O</option><option>3BHS</option><option>3BGals</option>
-          </select>
-        </div>
-        <div class="form-group"><label class="form-label">Grad Year</label><input class="form-input" id="pm-grad" placeholder="2028"></div>
-      </div>
-      <div class="form-group"><label class="form-label">Parent / Guardian</label><input class="form-input" id="pm-parent" placeholder="Full name"></div>
-      <div class="form-row">
-        <div class="form-group"><label class="form-label">Parent Email</label><input class="form-input" id="pm-parent-email" type="email" placeholder="parent@email.com"></div>
-        <div class="form-group"><label class="form-label">Parent Phone</label><input class="form-input" id="pm-phone" placeholder="(805) 555-0100"></div>
-      </div>
-      <div class="form-group">
-        <label class="form-check">
-          <input type="checkbox" id="pm-waiver">
-          <span class="form-check-label">Waiver agreed (check if player submitted waiver in person / on paper)</span>
-        </label>
-      </div>
-      <div class="form-group" style="margin-top:12px;">
-        <label class="form-label" style="margin-bottom:8px;">Monthly Payment History</label>
-        <div id="pm-payment-grid" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
-        <div style="font-size:11px;color:var(--text-secondary);margin-top:6px;">Click a month to toggle paid / unpaid</div>
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn" onclick="closeModal('player-modal')">Cancel</button>
-      <button class="btn btn-primary" onclick="savePlayer()">Save Player</button>
-    </div>
-  </div>
-</div>
-
 <!-- Location Modal -->
 <div class="modal-overlay" id="location-modal">
   <div class="modal" style="max-width:380px;">
@@ -1937,7 +1894,8 @@ async function loadPlayers() {
         grad: row.grad_year || '',
         jersey: row.jersey || '',
         parentId: row.parent_id,
-        waiver: !!row.waiver_signed
+        waiver: !!row.waiver_signed,
+        active: row.active !== false
       };
     });
     state.parents.forEach(function(p) {
@@ -2201,7 +2159,7 @@ Promise.all([loadLocations(), loadCoaches(), loadParents(), loadPlayers(), loadP
 
     // For parents: pick the first kid as default current player, render switcher
     if (state.currentParent) {
-  var myKids = state.players.filter(function(p) { return p.parentId === state.currentParent.id; });
+  var myKids = state.players.filter(function(p) { return p.parentId === state.currentParent.id && p.active !== false; });
   if (myKids.length > 0) {
     var firstKid = myKids[0];
     state.currentPlayer = firstKid;
@@ -2531,7 +2489,8 @@ async function regNext() {
 
 // ===== DASHBOARD =====
 function renderDashboard() {
-  const total = state.players.length;
+  const activePlayers = state.players.filter(p => p.active !== false);
+  const total = activePlayers.length;
   document.getElementById('stat-players').textContent = total;
   document.getElementById('stat-players-sub').textContent = '↑ active roster';
 
@@ -2543,7 +2502,7 @@ function renderDashboard() {
   const pastPractices = state.practices.filter(p => isPast(p.date));
   let avgAttend = '—';
   if (pastPractices.length) {
-    const rates = state.players.map(pl => {
+    const rates = activePlayers.map(pl => {
       const yesCount = pastPractices.filter(p => (p.rsvp || {})[pl.id] === 'yes').length;
       return yesCount / pastPractices.length;
     });
@@ -2582,7 +2541,7 @@ function renderDashboard() {
 
   // recent players
   const rp = document.getElementById('dash-recent-players');
-  rp.innerHTML = state.players.slice(0,4).map(p => `
+  rp.innerHTML = activePlayers.slice(0,4).map(p => `
     <div style="display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid var(--gray-border);">
       <div class="av av-${teamColor(p.team)}">${initials(p)}</div>
       <div style="flex:1;"><div style="font-size:13px;font-weight:500;">${p.first} ${p.last}</div><div style="font-size:11px;color:var(--text-secondary);">${p.team} · ${p.grad}</div></div>
@@ -2613,7 +2572,7 @@ function renderPractices(filter) {
       <td><div style="font-weight:500;">${fmtDate(p.date)}</div><div style="font-size:11px;color:var(--text-secondary);">${fmtTime(p.start)} – ${fmtTime(p.end)}</div></td>
       <td>${p.groups.map(g=>`<span class="team-tag" style="background:var(--orange-light);color:var(--orange-mid);margin-right:3px;">${g}</span>`).join('')}</td>
       <td>${p.location}</td>
-      <td>${p.checkedIn.length} / ${state.players.filter(pl => p.groups.some(g => pl.team === g)).length}</td>
+      <td>${p.checkedIn.length} / ${state.players.filter(pl => p.groups.some(g => pl.team === g) && pl.active !== false).length}</td>
       <td><span class="pill ${past ? 'pill-gray' : 'pill-green'}">${past ? 'Completed' : 'Upcoming'}</span></td>
       <td style="text-align:right;">
         ${isAdmin ? `<button class="btn btn-sm" onclick="editPractice('${p.id}')">Edit</button>
@@ -2841,7 +2800,7 @@ function renderReminderPanel() {
   const sessionLabel = type === 'practice' ? `${fmtDate(session.date)} practice` : `${session.name} (${fmtDate(session.startDate)})`;
 
   // Find players who haven't checked in and have a parent with email
-  let relevantPlayers = type === 'practice' ? state.players.filter(p => session.groups.includes(p.team)) : state.players;
+  let relevantPlayers = type === 'practice' ? state.players.filter(p => session.groups.includes(p.team) && p.active !== false) : state.players.filter(p => p.active !== false);
   const notCheckedIn = relevantPlayers.filter(p => !session.checkedIn.includes(p.id));
 
   // Group by parent
@@ -2892,7 +2851,7 @@ function sendReminderEmails() {
   const session = type === 'practice' ? state.practices.find(p=>p.id===id) : state.tournaments.find(t=>t.id===id);
   const sessionLabel = type === 'practice' ? `${fmtDate(session.date)} practice` : `${session.name} (${fmtDate(session.startDate)})`;
 
-  let relevantPlayers = type === 'practice' ? state.players.filter(p => session.groups.includes(p.team)) : state.players;
+  let relevantPlayers = type === 'practice' ? state.players.filter(p => session.groups.includes(p.team) && p.active !== false) : state.players.filter(p => p.active !== false);
   const notCheckedIn = relevantPlayers.filter(p => !session.checkedIn.includes(p.id));
 
   const parentMap = {};
@@ -2969,7 +2928,7 @@ function renderCheckinGrid() {
   grid.innerHTML = gridHTML;
 
   // summary
-  const totalPlayers = type === 'practice' ? state.players.filter(p => session.groups.includes(p.team)).length : state.players.length;
+  const totalPlayers = type === 'practice' ? state.players.filter(p => session.groups.includes(p.team) && p.active !== false).length : state.players.filter(p => p.active !== false).length;
   const checked = session.checkedIn.length;
   const pct = totalPlayers ? Math.round((checked/totalPlayers)*100) : 0;
   document.getElementById('checkin-summary').innerHTML = `
@@ -3056,19 +3015,9 @@ function renderRoster() {
     containerId: 'roster-table',
     teamFilter: document.getElementById('roster-filter-team').value,
     search: document.getElementById('roster-search').value.toLowerCase(),
-    role: 'admin'
-  });
-}
-
-function renderCoachRoster() {
-  const coach = state.currentCoach;
-  if (!coach) return;
-  renderRosterTable({
-    containerId: 'coach-roster-content',
-    teamFilter: '',
-    search: '',
-    role: 'coach',
-    teamScope: coach.teams || []
+    role: 'admin',
+    showInactive: document.getElementById('roster-show-inactive') &&
+                  document.getElementById('roster-show-inactive').checked
   });
 }
 
@@ -3081,6 +3030,10 @@ function renderRosterTable(opts) {
   if (opts.teamFilter) players = players.filter(p => p.team === opts.teamFilter);
   if (opts.search) players = players.filter(p => (p.first + ' ' + p.last).toLowerCase().includes(opts.search));
   if (opts.teamScope) players = players.filter(p => opts.teamScope.includes(p.team));
+  // Active filter: hide inactive unless explicitly showing them
+  if (!opts.showInactive) {
+    players = players.filter(p => p.active !== false);
+  }
   // Sort by team then last name for predictability
   players.sort((a, b) => (a.team || '').localeCompare(b.team || '') || a.last.localeCompare(b.last));
 
@@ -3114,7 +3067,8 @@ function buildRosterRow(p, includeAdminCols) {
   const parentEmail = parent ? (parent.email || '') : '';
   const parentPhone = parent ? (parent.phone || '') : '';
 
-  let row = '<tr>'
+  const rowStyle = (p.active === false) ? ' style="opacity:0.55;"' : '';
+  let row = '<tr' + rowStyle + '>'
     + '<td><div style="display:flex;align-items:center;gap:9px;">'
     + '<div class="av av-' + teamColor(p.team) + '">' + initials(p) + '</div>'
     + '<div><div style="font-weight:500;cursor:pointer;color:var(--green-dark);text-decoration:underline;text-underline-offset:2px;" onclick="openPlayerDetail(\'' + p.id + '\')">' + p.first + ' ' + p.last + '</div>'
@@ -3128,105 +3082,18 @@ function buildRosterRow(p, includeAdminCols) {
     row += '<td style="text-align:center;font-weight:600;">' + (p.jersey || '—') + '</td>';
   }
 
-  row += '<td><span class="team-tag" style="background:var(--orange-light);color:var(--orange-mid);">' + (p.team || '—') + '</span></td>'
-    + '<td>' + (p.grad || '—') + '</td>'
-    + '<td><div style="font-size:13px;">' + parentName + '</div><div style="font-size:11px;color:var(--text-secondary);">' + parentPhone + '</div></td>'
-    + '<td>' + (p.waiver ? '<span class="pill pill-green">Agreed ✓</span>' : '<span class="pill pill-red">Pending</span>') + '</td>'
-    + '<td><span class="pill ' + rateClass + '">' + rateStr + '</span></td>';
-
+  // Team: inline dropdown for admin, read-only tag for coach
   if (includeAdminCols) {
-    // Payment columns (admin only)
-    const curMonth = new Date().toISOString().slice(0, 7);
-    const paid = (p.paidMonths || []).includes(curMonth);
-    const sortedMonths = (p.paidMonths || []).slice().sort();
-    const lastPaid = sortedMonths.length ? sortedMonths[sortedMonths.length - 1] : null;
-    const monthOpts = [];
-    const now2 = new Date();
-    for (let i = 11; i >= 0; i--) {
-      const d = new Date(now2.getFullYear(), now2.getMonth() - i, 1);
-      const ym = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
-      monthOpts.push(ym);
-    }
-    const selectHtml = '<select onchange="setLastPaid(\'' + p.id + '\',this.value)" style="font-size:12px;padding:3px 6px;border-radius:6px;border:1px solid var(--gray-border);color:var(--text);background:var(--white);cursor:pointer;">'
-      + '<option value="">— not paid —</option>'
-      + monthOpts.map(ym => '<option value="' + ym + '"' + (lastPaid === ym ? ' selected' : '') + '>' + fmtMonthLabel(ym) + '</option>').join('')
-      + '</select>';
-    row += '<td>' + selectHtml + '</td>'
-      + '<td style="text-align:center;">'
-      + '<div style="width:28px;height:28px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;'
-      + (paid ? 'background:var(--teal);color:#fff;' : 'background:#FEEBEB;color:#C0392B;border:2px solid #F5B7B7;')
-      + '">' + (paid ? '✓' : '✗') + '</div>'
-      + '</td>'
-      // Action buttons (admin only)
-      + '<td style="text-align:right;">'
-      + '<button class="btn btn-sm admin-only" onclick="editPlayer(\'' + p.id + '\')">Edit</button>'
-      + '<button class="btn btn-sm btn-danger admin-only" style="margin-left:4px;" onclick="deletePlayer(\'' + p.id + '\')">Remove</button>'
-      + '</td>';
-  }
-
-  row += '</tr>';
-  return row;
-}
-
-
-function renderRosterTable(opts) {
-  const tb = document.getElementById(opts.containerId);
-  if (!tb) return;
-  const isAdmin = opts.role === 'admin';
-
-  let players = state.players.slice();
-  if (opts.teamFilter) players = players.filter(p => p.team === opts.teamFilter);
-  if (opts.search) players = players.filter(p => (p.first + ' ' + p.last).toLowerCase().includes(opts.search));
-  if (opts.teamScope) players = players.filter(p => opts.teamScope.includes(p.team));
-  // Sort by team then last name for predictability
-  players.sort((a, b) => (a.team || '').localeCompare(b.team || '') || a.last.localeCompare(b.last));
-
-  // For the coach roster, the container is a div (not a tbody) — so we render a full table
-  if (opts.role === 'coach') {
-    if (!players.length) {
-      tb.innerHTML = '<div class="empty"><div class="empty-icon">👥</div><div class="empty-text">No players on your teams yet</div></div>';
-      return;
-    }
-    tb.innerHTML = '<div class="panel"><div class="table-wrap"><table>'
-      + '<thead><tr><th>Player</th><th>#</th><th>Team</th><th>Grad Year</th><th>Parent / Guardian</th><th>Waiver</th><th>Attendance Rate</th></tr></thead>'
-      + '<tbody>' + players.map(p => buildRosterRow(p, false)).join('') + '</tbody>'
-      + '</table></div></div>';
-    return;
-  }
-
-  // Admin path: container IS a tbody
-  if (!players.length) {
-    tb.innerHTML = '<tr><td colspan="10"><div class="empty"><div class="empty-icon">👥</div><div class="empty-text">No players found</div></div></td></tr>';
-    return;
-  }
-  tb.innerHTML = players.map(p => buildRosterRow(p, true)).join('');
-}
-
-function buildRosterRow(p, includeAdminCols) {
-  const rate = getAttendRate(p.id);
-  const rateStr = rate !== null ? rate + '%' : '—';
-  const rateClass = rate === null ? '' : rate >= 75 ? 'pill-green' : rate >= 50 ? 'pill-amber' : 'pill-red';
-  const parent = state.parents.find(par => par.id === p.parentId);
-  const parentName = parent ? (parent.first + ' ' + parent.last) : '—';
-  const parentEmail = parent ? (parent.email || '') : '';
-  const parentPhone = parent ? (parent.phone || '') : '';
-
-  let row = '<tr>'
-    + '<td><div style="display:flex;align-items:center;gap:9px;">'
-    + '<div class="av av-' + teamColor(p.team) + '">' + initials(p) + '</div>'
-    + '<div><div style="font-weight:500;cursor:pointer;color:var(--green-dark);text-decoration:underline;text-underline-offset:2px;" onclick="openPlayerDetail(\'' + p.id + '\')">' + p.first + ' ' + p.last + '</div>'
-    + '<div style="font-size:11px;color:var(--text-secondary);">' + parentEmail + '</div>'
-    + '</div></div></td>';
-
-  // Jersey: editable for admin, read-only for coach
-  if (includeAdminCols) {
-    row += '<td><input type="text" value="' + (p.jersey || '') + '" placeholder="—" onchange="setJersey(\'' + p.id + '\',this.value)" style="width:42px;font-size:12px;padding:3px 5px;border-radius:5px;border:1px solid var(--gray-border);text-align:center;font-weight:600;" maxlength="3"></td>';
+    const teamOptions = ['T','C','B','G','O','3BHS','3BGals'];
+    row += '<td><select onchange="setPlayerTeam(\'' + p.id + '\',this.value)" style="font-size:12px;padding:3px 6px;border-radius:5px;border:1px solid var(--gray-border);">'
+      + '<option value="">—</option>'
+      + teamOptions.map(t => '<option value="' + t + '"' + (p.team === t ? ' selected' : '') + '>' + t + '</option>').join('')
+      + '</select></td>';
   } else {
-    row += '<td style="text-align:center;font-weight:600;">' + (p.jersey || '—') + '</td>';
+    row += '<td><span class="team-tag" style="background:var(--orange-light);color:var(--orange-mid);">' + (p.team || '—') + '</span></td>';
   }
 
-  row += '<td><span class="team-tag" style="background:var(--orange-light);color:var(--orange-mid);">' + (p.team || '—') + '</span></td>'
-    + '<td>' + (p.grad || '—') + '</td>'
+  row += '<td>' + (p.grad || '—') + '</td>'
     + '<td><div style="font-size:13px;">' + parentName + '</div><div style="font-size:11px;color:var(--text-secondary);">' + parentPhone + '</div></td>'
     + '<td>' + (p.waiver ? '<span class="pill pill-green">Agreed ✓</span>' : '<span class="pill pill-red">Pending</span>') + '</td>'
     + '<td><span class="pill ' + rateClass + '">' + rateStr + '</span></td>';
@@ -3252,68 +3119,19 @@ function buildRosterRow(p, includeAdminCols) {
       + '<div style="width:28px;height:28px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;'
       + (paid ? 'background:var(--teal);color:#fff;' : 'background:#FEEBEB;color:#C0392B;border:2px solid #F5B7B7;')
       + '">' + (paid ? '✓' : '✗') + '</div>'
-      + '</td>'
-      + '<td style="text-align:right;">'
-      + '<button class="btn btn-sm" onclick="editPlayer(\'' + p.id + '\')">Edit</button>'
-      + '<button class="btn btn-sm btn-danger" style="margin-left:4px;" onclick="deletePlayer(\'' + p.id + '\')">Remove</button>'
+      + '</td>';
+    const isInactive = p.active === false;
+    const btnLabel = isInactive ? 'Reactivate' : 'Mark Inactive';
+    const statusBadge = isInactive ? '<span class="pill pill-red">Inactive</span> ' : '';
+    row += '<td>'
+      + statusBadge
+      + '<button class="btn btn-sm" onclick="setPlayerActive(\'' + p.id + '\',' + isInactive + ')">' + btnLabel + '</button>'
       + '</td>';
   }
 
   row += '</tr>';
   return row;
 }
-function openPlayerModal(id) {
-  state.editingId = id || null;
-  document.getElementById('player-modal-title').textContent = id ? 'Edit Player' : 'Add Player';
-  const p = id ? state.players.find(x=>x.id===id) : null;
-  document.getElementById('pm-first').value = p ? p.first : '';
-  document.getElementById('pm-last').value = p ? p.last : '';
-  document.getElementById('pm-email').value = p ? p.email : '';
-  document.getElementById('pm-team').value = p ? p.team : '';
-  document.getElementById('pm-grad').value = p ? p.grad : '';
-  document.getElementById('pm-parent').value = p ? p.parent : '';
-  document.getElementById('pm-parent-email').value = p ? (p.parentEmail||'') : '';
-  document.getElementById('pm-phone').value = p ? p.phone : '';
-  document.getElementById('pm-waiver').checked = p ? p.waiver : false;
-  const grid = document.getElementById('pm-payment-grid');
-  if (grid) grid._tempPaid = null;
-  renderPaymentGrid(id||null);
-  openModal('player-modal');
-}
-function editPlayer(id) { openPlayerModal(id); }
-function savePlayer() {
-  const first = document.getElementById('pm-first').value.trim();
-  const last = document.getElementById('pm-last').value.trim();
-  if (!first || !last) { alert('Name required.'); return; }
-  const data = {
-    first, last,
-    email: document.getElementById('pm-email').value.trim(),
-    team: document.getElementById('pm-team').value,
-    grad: document.getElementById('pm-grad').value,
-    parent: document.getElementById('pm-parent').value,
-    parentEmail: document.getElementById('pm-parent-email').value.trim(),
-    phone: document.getElementById('pm-phone').value,
-    waiver: document.getElementById('pm-waiver').checked,
-    paidMonths: (() => { const g = document.getElementById('pm-payment-grid'); return g && g._tempPaid ? Array.from(g._tempPaid) : (state.editingId ? (state.players.find(x=>x.id===state.editingId)||{}).paidMonths||[] : []); })()
-  };
-  if (state.editingId) {
-    const idx = state.players.findIndex(p=>p.id===state.editingId);
-    state.players[idx] = { ...state.players[idx], ...data };
-    toast('Player updated!');
-  } else {
-    state.players.push({ id: uid(), ...data });
-    toast('Player added!');
-  }
-  closeModal('player-modal');
-  renderRoster();
-}
-function deletePlayer(id) {
-  if (!confirm('Remove this player from the roster?')) return;
-  state.players = state.players.filter(p=>p.id!==id);
-  renderRoster();
-  toast('Player removed.');
-}
-
 // ===== ATTENDANCE REPORT =====
 function renderAttendanceReport() {
   const teamFilter = document.getElementById('attend-team-filter').value;
@@ -3888,20 +3706,25 @@ function renderParentAccount() {
   const myPlayers = state.players.filter(p => p.parentId === parent.id);
   const list = document.getElementById('pa-players-list');
   list.innerHTML = myPlayers.length ? myPlayers.map(p => {
-    const active = state.currentUser && state.currentUser.id === p.id;
+    const isViewing = state.currentUser && state.currentUser.id === p.id;
+    const isInactive = p.active === false;
+    const rowOpacity = isInactive ? 'opacity:0.6;' : '';
     const photoHtml = p.photo
       ? `<img src="${p.photo}" style="width:42px;height:42px;border-radius:50%;object-fit:cover;border:2px solid var(--gray-border);">`
       : `<div class="av av-${teamColor(p.team)}" style="flex-shrink:0;">${initials(p)}</div>`;
-    return `<div style="padding:12px 16px;border-bottom:1px solid var(--gray-border);">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+    const inactiveBadge = isInactive ? ' <span class="pill pill-red" style="font-size:10px;">Inactive</span>' : '';
+    const statusBtn = `<button class="btn btn-sm" onclick="setPlayerActive('${p.id}',${isInactive})">${isInactive ? 'Reactivate' : 'Mark Inactive'}</button>`;
+    return `<div style="padding:12px 16px;border-bottom:1px solid var(--gray-border);${rowOpacity}">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;">
         ${photoHtml}
-        <div style="flex:1;">
-          <div style="font-size:13px;font-weight:500;">${p.first} ${p.last}${p.jersey?' <span style="font-size:11px;color:var(--text-secondary);font-weight:400;">#'+p.jersey+'</span>':''}</div>
-          <div style="font-size:11px;color:var(--text-secondary);">${p.team} · Class of ${p.grad||'—'}</div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:13px;font-weight:500;">${p.first} ${p.last}${p.jersey?' <span style="font-size:11px;color:var(--text-secondary);font-weight:400;">#'+p.jersey+'</span>':''}${inactiveBadge}</div>
+          <div style="font-size:11px;color:var(--text-secondary);">${p.team || '—'} · Class of ${p.grad||'—'}</div>
         </div>
-        ${active ? '<span class="pill pill-green" style="font-size:10px;">Viewing</span>' : `<button class="btn btn-sm" onclick="switchPlayer('${p.id}')">View</button>`}
-        <button class="btn btn-sm" onclick="openPlayerDetail('${p.id}')">View</button>
+        ${isViewing ? '<span class="pill pill-green" style="font-size:10px;">Viewing</span>' : (isInactive ? '' : `<button class="btn btn-sm" onclick="switchPlayer('${p.id}')">View</button>`)}
+        <button class="btn btn-sm" onclick="openPlayerDetail('${p.id}')">Detail</button>
         <button class="btn btn-sm" onclick="openEditChildModal('${p.id}')">Edit</button>
+        ${statusBtn}
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         <div style="display:flex;align-items:center;gap:6px;">
@@ -3942,7 +3765,11 @@ function openAddChildModal() {
   document.getElementById('ch-last').value  = '';
   document.getElementById('ch-team').value  = '';
   document.getElementById('ch-grad').value  = '';
+  document.getElementById('ch-jersey').value = '';
   document.getElementById('ch-waiver').checked = false;
+  document.getElementById('ch-first').disabled = false;
+  document.getElementById('ch-last').disabled = false;
+  document.getElementById('ch-waiver').disabled = false;
   openModal('child-modal');
 }
 function openEditChildModal(id) {
@@ -3954,33 +3781,70 @@ function openEditChildModal(id) {
   document.getElementById('ch-last').value  = p.last  || '';
   document.getElementById('ch-team').value  = p.team  || '';
   document.getElementById('ch-grad').value  = p.grad  || '';
+  document.getElementById('ch-jersey').value = p.jersey || '';
   document.getElementById('ch-waiver').checked = p.waiver || false;
+  // Existing players: parent can only change team/grad/jersey
+  document.getElementById('ch-first').disabled = true;
+  document.getElementById('ch-last').disabled = true;
+  document.getElementById('ch-waiver').disabled = true;
   openModal('child-modal');
 }
-function saveChild() {
+async function saveChild() {
   const first = document.getElementById('ch-first').value.trim();
   const last  = document.getElementById('ch-last').value.trim();
   const team  = document.getElementById('ch-team').value;
-  if (!first || !last || !team) { alert('Name and team are required.'); return; }
+  const grad  = document.getElementById('ch-grad').value.trim();
+  const jersey = document.getElementById('ch-jersey').value.trim();
+  const waiver = document.getElementById('ch-waiver').checked;
+
+  if (!first || !last) { alert('First and last name are required.'); return; }
+  if (!team) { alert('Please select a team.'); return; }
+
   if (editingChildId) {
-    const idx = state.players.findIndex(p=>p.id===editingChildId);
-    state.players[idx] = { ...state.players[idx], first, last, team,
-      grad: document.getElementById('ch-grad').value,
-      waiver: document.getElementById('ch-waiver').checked };
-    if (state.currentUser && state.currentUser.id === editingChildId) {
-      state.currentUser = { ...state.players[idx], role:'parent', initials: initials(state.players[idx]) };
+    // EDIT: only team/grad/jersey are mutable. Name/waiver stay as they were.
+    const row = {
+      team: team || null,
+      grad_year: grad || null,
+      jersey: jersey || null
+    };
+    try {
+      const { error } = await sb.from('players').update(row).eq('id', editingChildId);
+      if (error) { console.error(error); alert('Save failed: ' + error.message); return; }
+      await loadPlayers();
+      closeModal('child-modal');
+      renderParentAccount();
+      renderSwitcherPills();
+      toast('Player updated!');
+    } catch (e) {
+      console.error('saveChild edit error:', e);
+      alert('Save failed: ' + e.message);
     }
-    toast('Player updated!');
   } else {
-    const pid = uid();
-    state.players.push({ id:pid, first, last, team, grad: document.getElementById('ch-grad').value,
-      waiver: document.getElementById('ch-waiver').checked, parentId: state.currentParent.id });
-    state.currentParent.playerIds.push(pid);
-    toast('Player added!');
+    // CREATE: requires waiver to be checked
+    if (!waiver) { alert('Please agree to the waiver to add a player.'); return; }
+    const row = {
+      first: first,
+      last: last,
+      team: team || null,
+      grad_year: grad || null,
+      jersey: jersey || null,
+      waiver_signed: true,
+      parent_id: state.currentParent.id,
+      active: true
+    };
+    try {
+      const { error } = await sb.from('players').insert(row);
+      if (error) { console.error(error); alert('Save failed: ' + error.message); return; }
+      await loadPlayers();
+      closeModal('child-modal');
+      renderParentAccount();
+      renderSwitcherPills();
+      toast('Player added!');
+    } catch (e) {
+      console.error('saveChild create error:', e);
+      alert('Save failed: ' + e.message);
+    }
   }
-  closeModal('child-modal');
-  renderParentAccount();
-  renderPlayerSwitcher();
 }
 
 // ===== COACH PORTAL (non-admin coach) =====
@@ -4058,7 +3922,7 @@ function renderCoachRoster() {
   const container = document.getElementById('coach-roster-content');
   if (!container) return;
 
-  let players = state.players.filter(p => coach.teams && coach.teams.includes(p.team));
+  let players = state.players.filter(p => coach.teams && coach.teams.includes(p.team) && p.active !== false);
   players.sort((a, b) => (a.team || '').localeCompare(b.team || '') || a.last.localeCompare(b.last));
 
   if (!players.length) {
@@ -4410,7 +4274,7 @@ function renderSwitcherPills() {
   const parent = state.currentParent;
   const switcherDiv = document.getElementById('player-switcher');
   if (!parent || !switcherDiv) return;
-  const myPlayers = state.players.filter(p => p.parentId === parent.id);
+  const myPlayers = state.players.filter(p => p.parentId === parent.id && p.active !== false);
   // Only show switcher if multiple players
   if (myPlayers.length < 2) { switcherDiv.style.display = 'none'; return; }
   switcherDiv.style.display = 'block';
@@ -4472,7 +4336,7 @@ function showSessionRoster(sessionId, type) {
   const sessionGroups = session.groups || [];
 
   // All players whose team is in this session's groups
-  const eligiblePlayers = state.players.filter(p => sessionGroups.includes(p.team));
+  const eligiblePlayers = state.players.filter(p => sessionGroups.includes(p.team) && p.active !== false);
 
   // Bucket by team, then by RSVP status
   const teams = {};
@@ -4608,7 +4472,7 @@ function renderAttendanceSummary() {
     TEAMS.forEach(t => {
       const tSessions = sessions.filter(s => s.groups.includes(t));
       if (!tSessions.length) return;
-      const players = state.players.filter(p => p.team === t);
+      const players = state.players.filter(p => p.team === t && p.active !== false);
       if (!players.length) return;
       const total = tSessions.length * players.length;
       const attended = tSessions.reduce((sum, s) => sum + players.filter(p => (s.rsvp || {})[p.id] === 'yes').length, 0);
@@ -4632,7 +4496,7 @@ function renderAttendanceSummary() {
       <div style="font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:10px;">Attendance Rate by Team</div>
       <div style="display:flex;flex-direction:column;gap:6px;">
         ${TEAMS.map(team => {
-          const players = state.players.filter(p => p.team === team);
+          const players = state.players.filter(p => p.team === team && p.active !== false);
           if (!players.length) return '';
           const sessions = state.practices.filter(s => s.groups.includes(team) && isPast(s.date));
           if (!sessions.length) return '';
@@ -4654,9 +4518,66 @@ function renderAttendanceSummary() {
 }
 
 
-function setJersey(playerId, value) {
+async function setJersey(playerId, value) {
+  const trimmed = (value || '').trim();
   const p = state.players.find(x => x.id === playerId);
-  if (p) { p.jersey = value.trim(); }
+  if (!p) return;
+  const previous = p.jersey || '';
+  p.jersey = trimmed; // optimistic local update
+  try {
+    const { error } = await sb.from('players')
+      .update({ jersey: trimmed || null })
+      .eq('id', playerId);
+    if (error) throw error;
+  } catch (e) {
+    console.error('setJersey error:', e);
+    p.jersey = previous; // rollback
+    alert('Could not save jersey number: ' + e.message);
+    renderRoster();
+  }
+}
+
+async function setPlayerTeam(playerId, team) {
+  const p = state.players.find(x => x.id === playerId);
+  if (!p) return;
+  const previous = p.team || '';
+  p.team = team || ''; // optimistic
+  try {
+    const { error } = await sb.from('players')
+      .update({ team: team || null })
+      .eq('id', playerId);
+    if (error) throw error;
+    toast('Team updated for ' + p.first + ' ' + p.last);
+  } catch (e) {
+    console.error('setPlayerTeam error:', e);
+    p.team = previous;
+    alert('Could not change team: ' + e.message);
+    renderRoster();
+  }
+}
+
+async function setPlayerActive(playerId, active) {
+  const p = state.players.find(x => x.id === playerId);
+  if (!p) return;
+  const action = active ? 'Reactivate' : 'Mark inactive';
+  if (!confirm(action + ' ' + p.first + ' ' + p.last + '?')) return;
+  const previous = p.active;
+  p.active = active; // optimistic
+  try {
+    const { error } = await sb.from('players')
+      .update({ active: active })
+      .eq('id', playerId);
+    if (error) throw error;
+    toast(active ? 'Player reactivated' : 'Player marked inactive');
+    renderRoster();
+    if (typeof renderParentAccount === 'function') renderParentAccount();
+    if (typeof renderSwitcherPills === 'function') renderSwitcherPills();
+  } catch (e) {
+    console.error('setPlayerActive error:', e);
+    p.active = previous;
+    alert('Could not update player status: ' + e.message);
+    renderRoster();
+  }
 }
 
 
@@ -4715,7 +4636,7 @@ function openMobileMoreMenu() {
 
   // Parent-only: append "Viewing Player" switcher when 2+ kids on this account.
   if (activeNav.id === 'player-nav' && state.currentParent) {
-    const myPlayers = state.players.filter(p => p.parentId === state.currentParent.id);
+    const myPlayers = state.players.filter(p => p.parentId === state.currentParent.id && p.active !== false);
     if (myPlayers.length >= 2) {
       const activeId = state.currentUser ? state.currentUser.id : null;
       html += `<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--gray-border);">
