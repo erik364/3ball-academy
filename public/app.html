@@ -918,7 +918,7 @@ body:not([data-role="admin"]) .btn.admin-only {
           <div class="two-col">
             <div class="panel">
               <div class="panel-header">
-                <span class="panel-title">Upcoming practices</span>
+                <span class="panel-title">Upcoming sessions</span>
                 <button class="panel-link" onclick="showPage('practices', document.querySelector('[onclick*=practices]'))">View all →</button>
               </div>
               <div id="dash-practices"></div>
@@ -1591,6 +1591,7 @@ let state = {
   loginRole: 'coach',
   practices: [],
   tournaments: [],
+  tournamentGames: [],
   parents: [],
   players: [],
   locations: [],
@@ -1985,6 +1986,28 @@ async function loadTournaments() {
   } catch (e) { console.error('loadTournaments threw:', e); }
 }
 
+async function loadTournamentGames() {
+  if (!sb) return;
+  try {
+    const { data, error } = await sb.from('tournament_games').select('*').order('date');
+    if (error) { console.error('loadTournamentGames error:', error); return; }
+    state.tournamentGames = (data || []).map(function(row) {
+      return {
+        id: row.id,
+        tournamentId: row.tournament_id,
+        date: row.date,
+        start: row.start_time ? row.start_time.slice(0,5) : '',
+        end: row.end_time ? row.end_time.slice(0,5) : '',
+        location: row.location_text || '',
+        opponent: row.opponent || '',
+        notes: row.notes || '',
+        groups: row.groups || [],
+        coachIds: row.coach_ids || []
+      };
+    });
+  } catch (e) { console.error('loadTournamentGames threw:', e); }
+}
+
 async function loadPracticeRsvps() {
   if (!sb) return;
   try {
@@ -2032,7 +2055,7 @@ async function loadPracticeCheckins() {
 
 // Convenience wrapper: load practices/tournaments + their child rows in the right order
 async function loadSchedule() {
-  await Promise.all([loadPractices(), loadTournaments()]);
+  await Promise.all([loadPractices(), loadTournaments(), loadTournamentGames()]);
   await Promise.all([loadPracticeRsvps(), loadTournamentRsvps(), loadPracticeCheckins()]);
 }
 function resolveSupabaseUser(user) {
@@ -2480,20 +2503,67 @@ function renderDashboard() {
   document.getElementById('stat-attend').textContent = avgAttend;
   document.getElementById('stat-tournaments').textContent = state.tournaments.filter(t => t.startDate >= today()).length;
 
-  // upcoming practices
-  const up = state.practices.filter(p => p.date >= today()).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,5);
+  // upcoming sessions (practices + tournament games)
+  const upcomingPractices = state.practices
+    .filter(p => p.date >= today())
+    .map(p => ({
+      _type: 'practice',
+      _date: p.date,
+      _start: p.start,
+      _end: p.end,
+      id: p.id,
+      groups: p.groups || [],
+      location: p.location || '',
+      checkedIn: p.checkedIn || []
+    }));
+
+  const upcomingGames = (state.tournamentGames || [])
+    .filter(g => g.date >= today())
+    .map(g => {
+      const tournament = state.tournaments.find(t => t.id === g.tournamentId);
+      return {
+        _type: 'game',
+        _date: g.date,
+        _start: g.start,
+        _end: g.end,
+        id: g.id,
+        groups: g.groups || [],
+        location: g.location || '',
+        opponent: g.opponent || '',
+        tournamentName: tournament ? tournament.name : 'Tournament'
+      };
+    });
+
+  const upcoming = [...upcomingPractices, ...upcomingGames]
+    .sort((a, b) => a._date.localeCompare(b._date) || (a._start || '').localeCompare(b._start || ''))
+    .slice(0, 5);
+
   const pb = document.getElementById('dash-practices');
-  if (!up.length) { pb.innerHTML = '<div class="empty"><div class="empty-icon">📅</div><div class="empty-text">No upcoming practices</div></div>'; }
-  else {
-    pb.innerHTML = up.map(p => `
-      <div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--gray-border);">
-        <div style="width:8px;height:8px;border-radius:50%;background:var(--green-mid);flex-shrink:0;"></div>
-        <div style="flex:1;">
-          <div style="font-size:13px;font-weight:500;">${p.groups.join(', ')} — ${p.location}</div>
-          <div style="font-size:11px;color:var(--text-secondary);">${fmtDate(p.date)} · ${fmtTime(p.start)}–${fmtTime(p.end)}</div>
-        </div>
-        <span class="pill ${p.checkedIn.length > 0 ? 'pill-green' : 'pill-gray'}">${p.checkedIn.length} in</span>
-      </div>`).join('');
+  if (!upcoming.length) {
+    pb.innerHTML = '<div class="empty"><div class="empty-icon">📅</div><div class="empty-text">No upcoming sessions</div></div>';
+  } else {
+    pb.innerHTML = upcoming.map(item => {
+      const isPractice = item._type === 'practice';
+      const dotColor = isPractice ? 'var(--green-mid)' : 'var(--orange-mid)';
+      const typeLabel = isPractice ? 'Practice' : `🏆 ${item.tournamentName}`;
+      const teamsLine = (item.groups || []).join(', ');
+      const headerLine = isPractice
+        ? `${teamsLine || 'Practice'} — ${item.location || 'TBD'}`
+        : `${teamsLine ? teamsLine + ' — ' : ''}${typeLabel}${item.opponent ? ' vs ' + item.opponent : ''}`;
+      const timeStr = item._start ? `${fmtTime(item._start)}${item._end ? '–' + fmtTime(item._end) : ''}` : '';
+      const checkinPill = isPractice
+        ? `<span class="pill ${(item.checkedIn || []).length > 0 ? 'pill-green' : 'pill-gray'}">${(item.checkedIn || []).length} in</span>`
+        : '';
+      return `
+        <div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--gray-border);">
+          <div style="width:8px;height:8px;border-radius:50%;background:${dotColor};flex-shrink:0;"></div>
+          <div style="flex:1;">
+            <div style="font-size:13px;font-weight:500;">${headerLine}</div>
+            <div style="font-size:11px;color:var(--text-secondary);">${fmtDate(item._date)}${timeStr ? ' · ' + timeStr : ''}${!isPractice && item.location ? ' · ' + item.location : ''}</div>
+          </div>
+          ${checkinPill}
+        </div>`;
+    }).join('');
   }
 
   // checkin status
@@ -2503,9 +2573,13 @@ function renderDashboard() {
     ci.innerHTML = `<div class="alert alert-success">Active session: <strong>${active.groups.join(', ')}</strong> @ ${active.location}</div>
     <button class="btn btn-primary" style="width:100%;" onclick="showPage('checkin',document.querySelector('[onclick*=checkin]'))">Open Check-in →</button>`;
   } else {
-    const next = state.practices.filter(p=>p.date >= today()).sort((a,b)=>a.date.localeCompare(b.date))[0];
+    const nextSession = upcoming[0];
     ci.innerHTML = `<div style="color:var(--text-secondary);font-size:13px;margin-bottom:10px;">No session today.</div>
-    ${next ? `<div style="font-size:13px;">Next: <strong>${next.groups.join(', ')}</strong> on ${fmtDate(next.date)}</div>` : ''}`;
+    ${nextSession ? `<div style="font-size:13px;">Next: <strong>${
+      nextSession._type === 'practice'
+        ? ((nextSession.groups || []).join(', ') || 'Practice')
+        : ('🏆 ' + nextSession.tournamentName)
+    }</strong> on ${fmtDate(nextSession._date)}</div>` : ''}`;
   }
 
   // recent players
