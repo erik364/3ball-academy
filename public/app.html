@@ -1179,7 +1179,7 @@ body:not([data-role="admin"]) .btn.admin-only {
           </div>
           <div class="two-col">
             <div class="panel">
-              <div class="panel-header"><span class="panel-title">Upcoming sessions</span></div>
+              <div class="panel-header"><span class="panel-title">Upcoming practices</span></div>
               <div id="player-upcoming"></div>
             </div>
             <div class="panel">
@@ -3916,28 +3916,52 @@ function renderPlayerHome() {
     document.getElementById('p-stat-next-time').textContent = 'No upcoming sessions';
   }
 
-  const upcoming = state.practices.filter(pr => pr.date >= today() && pr.groups.includes(p.team)).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,5);
-  const pu = document.getElementById('player-upcoming');
-  pu.innerHTML = upcoming.length ? upcoming.map(pr => {
-    const rsvpVal = (pr.rsvp || {})[p.id];
-    let rsvpPill;
-    if (rsvpVal === 'yes') rsvpPill = '<span class="pill pill-green">Going ✓</span>';
-    else if (rsvpVal === 'no') rsvpPill = '<span class="pill pill-red">Not going ✗</span>';
-    else rsvpPill = '<span class="pill pill-gray">Not yet answered</span>';
-    return `<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--gray-border);cursor:pointer;" onclick="showSessionRoster('${pr.id}','practice')">
-      <div style="flex:1;"><div style="font-size:13px;font-weight:500;">${pr.groups.join(', ')} @ ${pr.location}</div>
-      <div style="font-size:11px;color:var(--text-secondary);">${fmtDate(pr.date)} · ${fmtTime(pr.start)}–${fmtTime(pr.end)}</div></div>
-      ${rsvpPill}
-    </div>`;
-  }).join('') : '<div class="empty"><div class="empty-icon">📅</div><div class="empty-text">No upcoming practices</div></div>';
+  const upcomingPractices = state.practices
+    .filter(pr => pr.date >= today() && (pr.groups || []).includes(p.team))
+    .sort((a, b) => a.date.localeCompare(b.date) || (a.start || '').localeCompare(b.start || ''))
+    .slice(0, 5);
 
-  const tourns = state.tournaments.filter(t=>t.startDate>=today()&&(t.groups.includes(p.team)||!t.groups.length));
+  const pu = document.getElementById('player-upcoming');
+  if (!upcomingPractices.length) {
+    pu.innerHTML = '<div class="empty"><div class="empty-icon">📅</div><div class="empty-text">No upcoming practices</div></div>';
+  } else {
+    pu.innerHTML = upcomingPractices.map(pr => {
+      const rsvpVal = (pr.rsvp || {})[p.id];
+      let rsvpPill;
+      if (rsvpVal === 'yes') rsvpPill = '<span class="pill pill-green">Going ✓</span>';
+      else if (rsvpVal === 'no') rsvpPill = '<span class="pill pill-red">Not going ✗</span>';
+      else rsvpPill = '<span class="pill pill-gray">Not yet answered</span>';
+
+      return `<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--gray-border);cursor:pointer;transition:background 0.1s;" onclick="showPage('player-schedule', null)" onmouseover="this.style.background='var(--gray-bg)'" onmouseout="this.style.background=''">
+        <div style="flex:1;">
+          <div style="font-size:13px;font-weight:500;">${(pr.groups || []).join(', ')} @ ${pr.location || 'TBD'}</div>
+          <div style="font-size:11px;color:var(--text-secondary);">${fmtDate(pr.date)} · ${fmtTime(pr.start)}–${fmtTime(pr.end)}</div>
+        </div>
+        ${rsvpPill}
+      </div>`;
+    }).join('');
+  }
+
+  // Filter to upcoming tournaments where the selected kid is on a tournament team's roster
+  const upcomingTournaments = state.tournaments.filter(t => {
+    if (t.startDate < today()) return false;
+    return state.tournamentTeams.some(team =>
+      team.tournamentId === t.id && (team.playerIds || []).includes(p.id)
+    );
+  }).sort((a, b) => a.startDate.localeCompare(b.startDate)).slice(0, 5);
+
   const pt = document.getElementById('player-tournaments-home');
-  pt.innerHTML = tourns.length ? tourns.map(t=>`
-    <div style="padding:10px 14px;border-bottom:1px solid var(--gray-border);cursor:pointer;" onclick="showSessionRoster('${t.id}','tournament')">
-      <div style="font-size:13px;font-weight:500;">${t.name}</div>
-      <div style="font-size:11px;color:var(--text-secondary);">${fmtDate(t.startDate)}${t.location ? ' · ' + t.location : ''}</div>
-    </div>`).join('') : '<div class="empty"><div class="empty-icon">🏆</div><div class="empty-text">No upcoming tournaments</div></div>';
+  if (!upcomingTournaments.length) {
+    pt.innerHTML = '<div class="empty"><div class="empty-icon">🏆</div><div class="empty-text">No upcoming tournaments</div></div>';
+  } else {
+    pt.innerHTML = upcomingTournaments.map(t => {
+      const datesStr = fmtDate(t.startDate) + (t.startDate !== t.endDate ? ' – ' + fmtDate(t.endDate) : '');
+      return `<div style="padding:10px 14px;border-bottom:1px solid var(--gray-border);cursor:pointer;transition:background 0.1s;" onclick="showPage('player-tournaments', null)" onmouseover="this.style.background='var(--gray-bg)'" onmouseout="this.style.background=''">
+        <div style="font-size:13px;font-weight:500;">${t.name}</div>
+        <div style="font-size:11px;color:var(--text-secondary);">${datesStr}</div>
+      </div>`;
+    }).join('');
+  }
 }
 
 function renderPlayerSchedule() {
