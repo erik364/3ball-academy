@@ -861,7 +861,6 @@ body:not([data-role="admin"]) .btn.admin-only {
         <div class="nav-item mobile-show" onclick="showPage('player-schedule',this)"><span class="nav-icon">📋</span><span>Schedule</span></div>
         <div class="nav-item mobile-show" onclick="showPage('player-calendar',this)"><span class="nav-icon">📆</span><span>Calendar</span></div>
         <div class="nav-item mobile-show" onclick="showPage('player-tournaments',this)"><span class="nav-icon">🏆</span><span>Tourneys</span></div>
-        <div class="nav-item" onclick="showPage('player-attendance',this)"><span class="nav-icon">📊</span><span>My Status</span></div>
         <div class="nav-section">Account</div>
         <div class="nav-item" onclick="showPage('parent-account',this)"><span class="nav-icon">👤</span><span>My Account</span></div>
         <div class="nav-item" onclick="window.open('https://www.jcarroll.com/collections/3ball','_blank')"><span class="nav-icon">🛒</span><span>Store</span></div>
@@ -1241,19 +1240,6 @@ body:not([data-role="admin"]) .btn.admin-only {
             </div>
           </div>
           <div id="coach-calendar-container"></div>
-        </div>
-
-        <!-- PLAYER ATTENDANCE -->
-        <div class="page" id="page-player-attendance">
-          <div class="section-header"><span class="section-title">My Status</span></div>
-          <div class="panel">
-            <div class="table-wrap">
-              <table>
-                <thead><tr><th>Session</th><th>Date</th><th>Location</th><th>Going?</th></tr></thead>
-                <tbody id="player-attendance-table"></tbody>
-              </table>
-            </div>
-          </div>
         </div>
 
         <!-- PLAYER TOURNAMENTS -->
@@ -1777,7 +1763,7 @@ function showPage(id, navEl) {
     checkin:'Player Check-in', roster:'Player Roster', attendance:'Response Reports',
     calendar:'Master Calendar',
     settings:'Settings', 'player-home':'Home', 'player-schedule':'My Schedule',
-    'player-calendar':'Calendar', 'player-attendance':'My Status', 'player-tournaments':'Tournaments',
+    'player-calendar':'Calendar', 'player-tournaments':'Tournaments',
     'parent-account':'My Account',
     'coach-schedule':'My Schedule',
     'coach-roster':'My Players',
@@ -1803,7 +1789,6 @@ function showPage(id, navEl) {
   if (id === 'player-calendar') renderCalendar('player-calendar-container', false);
   if (id === 'calendar') renderCalendar('coach-calendar-container', true);
   if (id === 'coach-calendar') renderCalendar('coach-only-calendar-container', 'coach-teams');
-  if (id === 'player-attendance') renderPlayerAttendance();
   if (id === 'player-tournaments') renderPlayerTournaments();
   if (id === 'parent-account') renderParentAccount();
 }
@@ -4231,25 +4216,6 @@ function calNav(containerId, dir) {
 
 
 
-function renderPlayerAttendance() {
-  const p = state.currentUser;
-  const sessions = state.practices.filter(pr=>isPast(pr.date)&&pr.groups.includes(p.team)).sort((a,b)=>b.date.localeCompare(a.date));
-  const tb = document.getElementById('player-attendance-table');
-  tb.innerHTML = sessions.map(pr => {
-    const rsvpVal = (pr.rsvp || {})[p.id];
-    let rsvpPill;
-    if (rsvpVal === 'yes') rsvpPill = '<span class="pill pill-green">Going ✓</span>';
-    else if (rsvpVal === 'no') rsvpPill = '<span class="pill pill-red">Not going ✗</span>';
-    else rsvpPill = '<span class="pill pill-gray">Not yet answered</span>';
-    return `<tr>
-      <td>${pr.groups.join(', ')} @ ${pr.location}</td>
-      <td>${fmtDate(pr.date)}</td>
-      <td>${pr.location}</td>
-      <td>${rsvpPill}</td>
-    </tr>`;
-  }).join('');
-}
-
 function renderPlayerTournaments() {
   const tc = document.getElementById('player-tournament-cards');
   if (!tc) return;
@@ -5066,7 +5032,6 @@ function switchPlayer(playerId) {
   if (pageId === 'player-home') renderPlayerHome();
   else if (pageId === 'player-schedule') renderPlayerScheduleFilter(currentSchedFilter);
   else if (pageId === 'player-calendar') renderCalendar('player-calendar-container', false);
-  else if (pageId === 'player-attendance') renderPlayerAttendance();
   else if (pageId === 'player-tournaments') renderPlayerTournaments();
   else if (pageId === 'parent-account') renderParentAccount();
   toast('Now viewing ' + p.first + "'s account");
