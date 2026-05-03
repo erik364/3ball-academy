@@ -2670,6 +2670,9 @@ function renderDashboard() {
   if (!upcoming.length) {
     pb.innerHTML = '<div class="empty"><div class="empty-icon">📅</div><div class="empty-text">No upcoming sessions</div></div>';
   } else {
+    const isAdminRole = state.currentUser && state.currentUser.isAdmin;
+    const isCoachRole = state.currentUser && state.currentUser.role === 'coach';
+    const canClick = isAdminRole || isCoachRole;
     pb.innerHTML = upcoming.map(item => {
       const isPractice = item._type === 'practice';
       const dotColor = isPractice ? 'var(--green-mid)' : 'var(--orange-mid)';
@@ -2681,8 +2684,31 @@ function renderDashboard() {
       const checkinPill = isPractice
         ? `<span class="pill ${(item.checkedIn || []).length > 0 ? 'pill-green' : 'pill-gray'}">${(item.checkedIn || []).length} in</span>`
         : '';
+
+      // Build the click handler based on role + type
+      let onclickAttr = '';
+      if (canClick) {
+        if (isPractice) {
+          onclickAttr = `onclick="openPracticeFromDashboard('${item.id}')"`;
+        } else {
+          // Game click → tournament detail page (lookup team → tournament)
+          const game = state.tournamentGames.find(g => g.id === item.id);
+          const team = game ? state.tournamentTeams.find(t => t.id === game.tournamentTeamId) : null;
+          const tournamentId = team ? team.tournamentId : null;
+          if (tournamentId) {
+            onclickAttr = `onclick="openTournamentDetail('${tournamentId}')"`;
+          }
+        }
+      }
+      const isClickable = !!onclickAttr;
+      const hoverAttr = isClickable
+        ? `onmouseover="this.style.background='var(--gray-bg)'" onmouseout="this.style.background=''"`
+        : '';
+      const rowStyle = 'display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--gray-border);'
+        + (isClickable ? 'cursor:pointer;transition:background 0.1s;' : '');
+
       return `
-        <div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--gray-border);">
+        <div style="${rowStyle}" ${onclickAttr} ${hoverAttr}>
           <div style="width:8px;height:8px;border-radius:50%;background:${dotColor};flex-shrink:0;"></div>
           <div style="flex:1;">
             <div style="font-size:13px;font-weight:500;">${headerLine}</div>
@@ -2717,6 +2743,12 @@ function renderDashboard() {
       <div style="flex:1;"><div style="font-size:13px;font-weight:500;">${p.first} ${p.last}</div><div style="font-size:11px;color:var(--text-secondary);">${p.team} · ${p.grad}</div></div>
       ${p.waiver ? '<span class="pill pill-green">Waiver ✓</span>' : '<span class="pill pill-red">No waiver</span>'}
     </div>`).join('');
+}
+
+function openPracticeFromDashboard(practiceId) {
+  // Generic navigation to the check-in page; user picks the session there.
+  // (No deep-link to a specific practice today — could be a follow-up.)
+  showPage('checkin', null);
 }
 
 // ===== PRACTICES =====
