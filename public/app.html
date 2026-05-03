@@ -5067,6 +5067,16 @@ function openCoachModal(id) {
   document.getElementById('cm-email').value = c?.email || '';
   document.getElementById('cm-phone').value = c?.phone || '';
   document.getElementById('cm-admin').checked = c?.isAdmin || false;
+  // Admin checkbox: hide on invite (RLS forbids non-admin from inserting an
+  // admin row; admin promotes via Edit after the coach exists). Show on edit.
+  const adminCheckLabel = document.getElementById('cm-admin').closest('.form-check') ||
+                          document.getElementById('cm-admin').parentElement;
+  if (adminCheckLabel) {
+    adminCheckLabel.style.display = editingCoachId ? '' : 'none';
+  }
+  if (!editingCoachId) {
+    document.getElementById('cm-admin').checked = false;
+  }
   // Render team checkboxes
   document.getElementById('cm-teams').innerHTML = ['T','C','B','G','O','3BHS','3BGals'].map(t =>
     `<label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;padding:3px 8px;border-radius:4px;background:${c?.teams?.includes(t)?'var(--green-light)':'transparent'};border:1px solid ${c?.teams?.includes(t)?'var(--green-mid)':'var(--gray-border)'};">
@@ -5085,13 +5095,6 @@ async function saveCoach() {
 
   if (!first || !last || !email) { toast('Name and email are required'); return; }
   if (!sb) { toast('Auth not configured'); return; }
-
-  // Confirm admin promotion on invite (extra friction for a sensitive action)
-  if (isAdmin && !editingCoachId) {
-    if (!confirm('Invite ' + first + ' ' + last + ' as an ADMIN coach?\n\nAdmin coaches have full access including roster management, approvals, and tournament setup.')) {
-      return;
-    }
-  }
 
   const saveBtn = document.getElementById('coach-modal-save-btn');
   if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = editingCoachId ? 'Saving...' : 'Sending invite...'; }
@@ -5124,13 +5127,14 @@ async function saveCoach() {
       // 1. Generate a random throwaway password (coach never uses this — they'll reset it)
       const randomPassword = 'tmp-' + crypto.randomUUID() + '-' + Date.now();
 
-      // 2. Sign up the auth user with role metadata
-      const role = isAdmin ? 'admin' : 'coach';
+      // 2. Sign up the auth user with role metadata. Always 'coach' on invite —
+      // admin promotion happens later via the edit modal (RLS prevents direct
+      // admin-row inserts from a freshly-signed-up non-admin session).
       const { data: signUpData, error: signUpError } = await sb.auth.signUp({
         email: email,
         password: randomPassword,
         options: {
-          data: { role: role, first: first, last: last, phone: phone }
+          data: { role: 'coach', first: first, last: last, phone: phone }
         }
       });
 
@@ -5158,7 +5162,7 @@ async function saveCoach() {
         last: last,
         email: email,
         phone: phone || null,
-        is_admin: isAdmin,
+        is_admin: false,                 // always false on invite — admin promotes later
         teams: teams
       });
 
@@ -5182,7 +5186,7 @@ async function saveCoach() {
         console.error('coach reset email error:', resetError);
         toast('Coach created but invite email failed. Resend from Supabase dashboard.');
       } else {
-        toast('Invite sent to ' + email);
+        toast('Invite sent to ' + email + '. They’ll start as a regular coach — you can promote to admin via Edit later.');
       }
 
       await loadCoaches();
