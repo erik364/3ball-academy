@@ -1699,6 +1699,8 @@ let state = {
   tournaments: [],
   tournamentGames: [],
   tournamentTeams: [],
+  tournamentRsvps: [],
+  tournamentGameRsvps: [],
   parents: [],
   players: [],
   locations: [],
@@ -2155,14 +2157,31 @@ async function loadTournamentRsvps() {
   try {
     const { data, error } = await sb.from('tournament_rsvps').select('*');
     if (error) { console.error('loadTournamentRsvps error:', error); return; }
-    (data || []).forEach(function(row) {
-      const t = state.tournaments.find(function(x) { return x.id === row.tournament_id; });
-      if (t) {
-        if (!t.rsvp) t.rsvp = {};
-        t.rsvp[row.player_id] = row.answer;
-      }
+    state.tournamentRsvps = (data || []).map(function(row) {
+      return {
+        id: row.id,
+        tournamentId: row.tournament_id,
+        playerId: row.player_id,
+        answer: row.answer
+      };
     });
   } catch (e) { console.error('loadTournamentRsvps threw:', e); }
+}
+
+async function loadTournamentGameRsvps() {
+  if (!sb) return;
+  try {
+    const { data, error } = await sb.from('tournament_game_rsvps').select('*');
+    if (error) { console.error('loadTournamentGameRsvps error:', error); return; }
+    state.tournamentGameRsvps = (data || []).map(function(row) {
+      return {
+        id: row.id,
+        gameId: row.game_id,
+        playerId: row.player_id,
+        answer: row.answer
+      };
+    });
+  } catch (e) { console.error('loadTournamentGameRsvps threw:', e); }
 }
 
 async function loadPracticeCheckins() {
@@ -2183,7 +2202,7 @@ async function loadPracticeCheckins() {
 // Convenience wrapper: load practices/tournaments + their child rows in the right order
 async function loadSchedule() {
   await Promise.all([loadPractices(), loadTournaments(), loadTournamentTeams(), loadTournamentGames()]);
-  await Promise.all([loadPracticeRsvps(), loadTournamentRsvps(), loadPracticeCheckins()]);
+  await Promise.all([loadPracticeRsvps(), loadTournamentRsvps(), loadTournamentGameRsvps(), loadPracticeCheckins()]);
 }
 function resolveSupabaseUser(user) {
   var email = (user.email || '').toLowerCase();
@@ -2866,9 +2885,10 @@ function renderTournaments() {
   }
   tc.innerHTML = state.tournaments.map(t => {
     const past = isPast(t.endDate);
-    // Count yes RSVPs per team
-    const rsvpObj = t.rsvp || {};
-    const yesIds = Object.keys(rsvpObj).filter(id => rsvpObj[id]==='yes');
+    // Count yes RSVPs per team (from flat tournamentRsvps array)
+    const yesIds = state.tournamentRsvps
+      .filter(r => r.tournamentId === t.id && r.answer === 'yes')
+      .map(r => r.playerId);
     const teamCounts = {};
     yesIds.forEach(id => {
       const pl = state.players.find(p=>p.id===id);
@@ -4207,48 +4227,210 @@ function renderPlayerAttendance() {
 }
 
 function renderPlayerTournaments() {
-  const p = state.currentUser; // active player
-  const tourns = state.tournaments.filter(t=>t.groups.includes(p.team)||t.groups.length===0);
   const tc = document.getElementById('player-tournament-cards');
-  tc.innerHTML = tourns.length ? tourns.map(t => {
+  if (!tc) return;
+
+  // All kids belonging to this parent
+  const myKids = state.currentParent
+    ? state.players.filter(p => p.parentId === state.currentParent.id && p.active !== false)
+    : [];
+
+  if (!myKids.length) {
+    tc.innerHTML = '<div class="empty" style="grid-column:1/-1;"><div class="empty-icon">🏆</div><div class="empty-text">No active players on your account.</div></div>';
+    return;
+  }
+
+  const myKidIds = new Set(myKids.map(k => k.id));
+
+  // For each tournament, find which of this parent's kids are rostered (via any tournament_team)
+  const tournamentsWithKids = state.tournaments.map(tour => {
+    const teamsWithMyKids = state.tournamentTeams
+      .filter(team => team.tournamentId === tour.id)
+      .filter(team => (team.playerIds || []).some(pid => myKidIds.has(pid)));
+
+    if (!teamsWithMyKids.length) return null;
+
+    const myKidsInThisTournament = myKids
+      .map(kid => {
+        const teamsForKid = teamsWithMyKids.filter(team => (team.playerIds || []).includes(kid.id));
+        if (!teamsForKid.length) return null;
+        return { kid, teams: teamsForKid };
+      })
+      .filter(Boolean);
+
+    return { tournament: tour, myKidsInThisTournament };
+  }).filter(Boolean);
+
+  if (!tournamentsWithKids.length) {
+    tc.innerHTML = '<div class="empty" style="grid-column:1/-1;"><div class="empty-icon">🏆</div><div class="empty-text">No tournaments yet for your kids.</div></div>';
+    return;
+  }
+
+  // Sort: upcoming asc, past desc
+  tournamentsWithKids.sort((a, b) => {
+    const aPast = isPast(a.tournament.endDate);
+    const bPast = isPast(b.tournament.endDate);
+    if (aPast !== bPast) return aPast ? 1 : -1;
+    return aPast
+      ? b.tournament.startDate.localeCompare(a.tournament.startDate)
+      : a.tournament.startDate.localeCompare(b.tournament.startDate);
+  });
+
+  tc.innerHTML = tournamentsWithKids.map(entry => {
+    const t = entry.tournament;
     const past = isPast(t.endDate);
-    const rsvpVal = (t.rsvp||{})[p.id];
-    const isYes = rsvpVal === 'yes';
-    const isNo = rsvpVal === 'no';
-    const rsvpHtml = past ? '' : `
-      <div style="border-top:1px solid var(--gray-border);padding-top:10px;margin-top:10px;">
-        <div style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:7px;">Will ${p.first} go?</div>
-        <div style="display:flex;gap:8px;">
-          <button class="btn btn-sm" onclick="setTournRsvp('${t.id}','${p.id}','yes')"
+    const datesStr = fmtDate(t.startDate) + (t.startDate !== t.endDate ? ' – ' + fmtDate(t.endDate) : '');
+
+    const kidSections = entry.myKidsInThisTournament.map(({ kid, teams }) => {
+      const tournRsvp = state.tournamentRsvps.find(r => r.tournamentId === t.id && r.playerId === kid.id);
+      const tournAns = tournRsvp ? tournRsvp.answer : null;
+      const isYes = tournAns === 'yes';
+      const isNo = tournAns === 'no';
+
+      // ---- ROSTER DISPLAY (always visible, even before RSVP) ----
+      const rosterSections = teams.map(team => {
+        const rosterPlayers = (team.playerIds || [])
+          .map(pid => state.players.find(p => p.id === pid))
+          .filter(Boolean)
+          .sort((a, b) => (a.last + a.first).localeCompare(b.last + b.first));
+
+        const teamCoaches = (team.coachIds || [])
+          .map(cid => state.coaches.find(c => c.id === cid))
+          .filter(Boolean);
+
+        const coachesLine = teamCoaches.length
+          ? teamCoaches.map(c => c.first + ' ' + c.last).join(', ')
+          : '<span style="color:var(--text-secondary);font-style:italic;">No coaches assigned yet</span>';
+
+        const rosterHtml = rosterPlayers.length
+          ? rosterPlayers.map(p => {
+              const isThisKid = p.id === kid.id;
+              const gradStr = p.grad ? ' · ' + p.grad : '';
+              return `<li style="font-size:13px;padding:3px 0;${isThisKid ? 'font-weight:600;color:var(--orange-mid);' : ''}">
+                ${p.first} ${p.last}${gradStr}${isThisKid ? ' <span style="font-size:10px;color:var(--text-secondary);">(your kid)</span>' : ''}
+              </li>`;
+            }).join('')
+          : '<li style="font-size:12px;color:var(--text-secondary);font-style:italic;">No players on roster yet</li>';
+
+        return `<div style="background:var(--gray-bg);border-radius:6px;padding:10px 12px;margin-bottom:8px;">
+          <div style="font-size:11px;font-weight:700;color:var(--orange-mid);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">
+            ${team.name}
+          </div>
+          <div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px;">
+            👤 Coach${teamCoaches.length === 1 ? '' : 'es'}: ${coachesLine}
+          </div>
+          <div style="font-size:10px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;">
+            Roster (${rosterPlayers.length})
+          </div>
+          <ul style="margin:0;padding-left:18px;">
+            ${rosterHtml}
+          </ul>
+        </div>`;
+      }).join('');
+
+      // ---- GAMES (only when tournament RSVP is yes) ----
+      let gamesHtml = '';
+      if (isYes && !past) {
+        const allGames = teams.flatMap(team =>
+          state.tournamentGames
+            .filter(g => g.tournamentTeamId === team.id)
+            .map(g => ({ ...g, teamName: team.name }))
+        ).sort((a, b) => {
+          if (a.date !== b.date) return a.date.localeCompare(b.date);
+          return (a.start || '').localeCompare(b.start || '');
+        });
+
+        if (!allGames.length) {
+          gamesHtml = `<div style="margin-top:10px;padding:10px;background:var(--gray-bg);border-radius:6px;font-size:12px;color:var(--text-secondary);font-style:italic;">No games scheduled yet for ${kid.first}'s team(s).</div>`;
+        } else {
+          gamesHtml = `<div style="margin-top:10px;">
+            <div style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">${kid.first}'s games</div>
+            ${allGames.map(g => {
+              const gRsvp = state.tournamentGameRsvps.find(r => r.gameId === g.id && r.playerId === kid.id);
+              const gAns = gRsvp ? gRsvp.answer : null;
+              const gIsYes = gAns === 'yes';
+              const gIsNo = gAns === 'no';
+              const timeStr = g.start ? fmtTime(g.start) + (g.end ? '–' + fmtTime(g.end) : '') : 'TBD';
+              const opponentStr = g.opponent ? ' vs ' + g.opponent : '';
+              const locStr = g.location ? ' · 📍 ' + g.location : '';
+
+              return `<div style="background:#fff;border:1px solid var(--gray-border);border-radius:6px;padding:10px;margin-bottom:6px;">
+                <div style="font-size:13px;font-weight:500;margin-bottom:2px;">
+                  ${g.teamName} · ${fmtDate(g.date)} · ${timeStr}${opponentStr}
+                </div>
+                ${locStr ? `<div style="font-size:11px;color:var(--text-secondary);margin-bottom:8px;">${locStr.replace(/^ · /, '')}</div>` : '<div style="margin-bottom:8px;"></div>'}
+                <div style="display:flex;gap:6px;">
+                  <button class="btn btn-sm" onclick="setGameRsvp('${g.id}','${kid.id}','yes')"
+                    style="flex:1;background:${gIsYes?'var(--teal)':'transparent'};color:${gIsYes?'#fff':'var(--teal-dark)'};border-color:${gIsYes?'var(--teal)':'#9FE1CB'};">
+                    ✓ Yes
+                  </button>
+                  <button class="btn btn-sm" onclick="setGameRsvp('${g.id}','${kid.id}','no')"
+                    style="flex:1;background:${gIsNo?'#E24B4A':'transparent'};color:${gIsNo?'#fff':'#A32D2D'};border-color:${gIsNo?'#E24B4A':'#F7C1C1'};">
+                    ✗ No
+                  </button>
+                </div>
+              </div>`;
+            }).join('')}
+          </div>`;
+        }
+      }
+
+      const tournamentRsvpHtml = past ? '' : `
+        <div style="display:flex;gap:8px;margin-top:6px;">
+          <button class="btn btn-sm" onclick="setTournRsvp('${t.id}','${kid.id}','yes')"
             style="flex:1;background:${isYes?'var(--teal)':'transparent'};color:${isYes?'#fff':'var(--teal-dark)'};border-color:${isYes?'var(--teal)':'#9FE1CB'};">
             ✓ Yes
           </button>
-          <button class="btn btn-sm" onclick="setTournRsvp('${t.id}','${p.id}','no')"
+          <button class="btn btn-sm" onclick="setTournRsvp('${t.id}','${kid.id}','no')"
             style="flex:1;background:${isNo?'#E24B4A':'transparent'};color:${isNo?'#fff':'#A32D2D'};border-color:${isNo?'#E24B4A':'#F7C1C1'};">
             ✗ No
           </button>
+        </div>`;
+
+      return `<div style="border-top:1px solid var(--gray-border);padding-top:12px;margin-top:12px;">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:8px;">
+          <div style="font-size:14px;font-weight:600;">${kid.first} ${kid.last}</div>
         </div>
-        ${rsvpVal ? `<div style="font-size:11px;color:var(--text-secondary);margin-top:6px;">Marked as <strong>${isYes?'going':'not going'}</strong></div>` : ''}
+        ${rosterSections}
+        ${past
+          ? `<div style="font-size:12px;color:var(--text-secondary);font-style:italic;margin-top:6px;">Tournament complete.</div>`
+          : `<div style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-top:8px;">Going to event?</div>${tournamentRsvpHtml}`
+        }
+        ${gamesHtml}
       </div>`;
-    return `<div class="panel" style="cursor:pointer;" onclick="if(!event.target.closest('button'))showSessionRoster('${t.id}','tournament')"><div style="padding:14px 16px;">
-      <div style="font-family:'Barlow Condensed',sans-serif;font-size:17px;font-weight:700;">${t.name}</div>
-      <div style="font-size:12px;color:var(--text-secondary);margin-top:2px;margin-bottom:8px;">${fmtDate(t.startDate)}${t.startDate!==t.endDate?' – '+fmtDate(t.endDate):''}</div>
-      <div style="font-size:13px;margin-bottom:4px;">📍 ${t.location || 'Details TBD'}</div>
-      ${t.address?`<div style="font-size:11px;color:var(--text-secondary);margin-bottom:8px;">${t.address}</div>`:''}
-      ${t.notes?`<div style="font-size:12px;color:var(--text-secondary);border-top:1px solid var(--gray-border);padding-top:8px;margin-top:4px;">${t.notes}</div>`:''}
-      ${t.result?`<div style="font-size:13px;font-weight:600;color:var(--teal);margin-top:8px;">Result: ${t.result}</div>`:''}
-      <span class="pill ${past?'pill-gray':'pill-orange'}" style="margin-top:6px;display:inline-block;">${past?'Past':'Upcoming'}</span>
-      ${rsvpHtml}
-    </div></div>`;
-  }).join('') : '<div class="empty" style="grid-column:1/-1;"><div class="empty-icon">🏆</div><div class="empty-text">No tournaments for your group</div></div>';
+    }).join('');
+
+    return `<div class="panel">
+      <div style="padding:14px 16px;">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:6px;">
+          <div>
+            <div style="font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:700;">${t.name}</div>
+            <div style="font-size:12px;color:var(--text-secondary);margin-top:2px;">${datesStr}</div>
+          </div>
+          <span class="pill ${past ? 'pill-gray' : 'pill-orange'}">${past ? 'Past' : 'Upcoming'}</span>
+        </div>
+        ${t.notes ? `<div style="font-size:12px;color:var(--text-secondary);font-style:italic;margin-top:4px;">${t.notes}</div>` : ''}
+        ${kidSections}
+      </div>
+    </div>`;
+  }).join('');
 }
 
 async function setTournRsvp(tournId, playerId, answer) {
-  const t = state.tournaments.find(x=>x.id===tournId);
-  if (!t || !sb) return;
+  if (!sb) return;
 
-  if (!t.rsvp) t.rsvp = {};
-  t.rsvp[playerId] = answer;
+  // Optimistic local update on flat tournamentRsvps array
+  const existingIdx = state.tournamentRsvps.findIndex(r => r.tournamentId === tournId && r.playerId === playerId);
+  if (existingIdx >= 0) {
+    state.tournamentRsvps[existingIdx].answer = answer;
+  } else {
+    state.tournamentRsvps.push({
+      id: 'temp-' + Date.now(),
+      tournamentId: tournId,
+      playerId: playerId,
+      answer: answer
+    });
+  }
   renderPlayerTournaments();
 
   const row = { tournament_id: tournId, player_id: playerId, answer: answer, updated_at: new Date().toISOString() };
@@ -4261,10 +4443,52 @@ async function setTournRsvp(tournId, playerId, answer) {
       const ins = await sb.from('tournament_rsvps').insert(row);
       if (ins.error) throw ins.error;
     }
-    toast(answer==='yes' ? "Marked as going 🏆" : "Marked as not going.");
+    await loadTournamentRsvps();
+    renderPlayerTournaments();
+    toast(answer === 'yes' ? 'Marked as going 🏆' : 'Marked as not going.');
   } catch (e) {
     console.error('setTournRsvp error:', e);
-    alert('Could not save the RSVP. Please try again.');
+    alert('Could not save RSVP: ' + (e.message || 'unknown error'));
+    await loadTournamentRsvps();
+    renderPlayerTournaments();
+  }
+}
+
+async function setGameRsvp(gameId, playerId, answer) {
+  if (!sb) return;
+
+  // Optimistic local update
+  const existingIdx = state.tournamentGameRsvps.findIndex(r => r.gameId === gameId && r.playerId === playerId);
+  if (existingIdx >= 0) {
+    state.tournamentGameRsvps[existingIdx].answer = answer;
+  } else {
+    state.tournamentGameRsvps.push({
+      id: 'temp-' + Date.now(),
+      gameId: gameId,
+      playerId: playerId,
+      answer: answer
+    });
+  }
+  renderPlayerTournaments();
+
+  const row = { game_id: gameId, player_id: playerId, answer: answer, updated_at: new Date().toISOString() };
+  try {
+    const existing = await sb.from('tournament_game_rsvps').select('id').eq('game_id', gameId).eq('player_id', playerId).maybeSingle();
+    if (existing.data) {
+      const upd = await sb.from('tournament_game_rsvps').update({ answer: answer, updated_at: row.updated_at }).eq('id', existing.data.id);
+      if (upd.error) throw upd.error;
+    } else {
+      const ins = await sb.from('tournament_game_rsvps').insert(row);
+      if (ins.error) throw ins.error;
+    }
+    await loadTournamentGameRsvps();
+    renderPlayerTournaments();
+    toast(answer === 'yes' ? 'Game RSVP: Yes' : 'Game RSVP: No');
+  } catch (e) {
+    console.error('setGameRsvp error:', e);
+    alert('Could not save game RSVP: ' + (e.message || 'unknown error'));
+    await loadTournamentGameRsvps();
+    renderPlayerTournaments();
   }
 }
 
