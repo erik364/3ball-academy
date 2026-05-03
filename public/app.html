@@ -932,6 +932,13 @@ body:not([data-role="admin"]) .btn.admin-only {
               </div>
               <div class="panel">
                 <div class="panel-header">
+                  <span class="panel-title">Pending Approvals</span>
+                  <span id="dash-pending-count" class="pill pill-orange" style="font-size:11px;">0</span>
+                </div>
+                <div id="dash-pending-list"></div>
+              </div>
+              <div class="panel">
+                <div class="panel-header">
                   <span class="panel-title">Recent players</span>
                   <button class="panel-link" onclick="showPage('roster', document.querySelector('[onclick*=roster]'))">Full roster →</button>
                 </div>
@@ -1330,6 +1337,34 @@ body:not([data-role="admin"]) .btn.admin-only {
     </div><!-- /main -->
   </div><!-- /app -->
 </div><!-- /#app -->
+
+<!-- PENDING APPROVAL SCREEN -->
+<div id="pending-approval-screen" style="display:none;position:fixed;inset:0;background:var(--gray-bg);z-index:1000;align-items:center;justify-content:center;padding:20px;">
+  <div style="background:#fff;border-radius:12px;max-width:480px;width:100%;padding:32px;box-shadow:0 10px 40px rgba(0,0,0,0.1);text-align:center;">
+    <div style="font-size:48px;margin-bottom:16px;">⏳</div>
+    <h2 style="font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:700;margin:0 0 12px;">Awaiting Approval</h2>
+    <p style="font-size:14px;color:var(--text-secondary);line-height:1.5;margin:0 0 8px;">
+      Your account has been created and is waiting for admin approval.
+    </p>
+    <p style="font-size:14px;color:var(--text-secondary);line-height:1.5;margin:0 0 20px;">
+      You'll be able to sign in once an admin approves your account. Reach out to your coach if you have questions.
+    </p>
+    <div id="pending-approval-name" style="font-size:13px;color:var(--text);font-weight:600;margin-bottom:20px;"></div>
+    <button class="btn btn-primary" onclick="signOut()" style="width:100%;">Sign out</button>
+  </div>
+</div>
+
+<!-- REJECTED SCREEN -->
+<div id="rejected-screen" style="display:none;position:fixed;inset:0;background:var(--gray-bg);z-index:1000;align-items:center;justify-content:center;padding:20px;">
+  <div style="background:#fff;border-radius:12px;max-width:480px;width:100%;padding:32px;box-shadow:0 10px 40px rgba(0,0,0,0.1);text-align:center;">
+    <div style="font-size:48px;margin-bottom:16px;">🚫</div>
+    <h2 style="font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:700;margin:0 0 12px;">Account Not Approved</h2>
+    <p style="font-size:14px;color:var(--text-secondary);line-height:1.5;margin:0 0 20px;">
+      Your account was not approved. If you believe this is a mistake, please contact your coach.
+    </p>
+    <button class="btn btn-primary" onclick="signOut()" style="width:100%;">Sign out</button>
+  </div>
+</div>
 
 <!-- ===== CHILD (PLAYER) MODAL ===== -->
 <div class="modal-overlay" id="child-modal">
@@ -1989,6 +2024,7 @@ async function loadParents() {
         last: row.last,
         email: row.email,
         phone: row.phone || '',
+        status: row.status || 'pending',
         password: '',
         playerIds: []
       };
@@ -2205,7 +2241,7 @@ function resolveSupabaseUser(user) {
   
  if (metaRole === 'parent') {
     var parent = state.parents.find(function(p) { return p.email.toLowerCase() === email; });
-    if (parent) return { role: 'parent', parent: parent };
+    if (parent) return { role: 'parent', parent: parent, status: parent.status || 'pending' };
     console.warn('Parent role but no row in parents table:', email);
     return null;
   }
@@ -2215,7 +2251,7 @@ function resolveSupabaseUser(user) {
   if (coachMatch) return { role: coachMatch.isAdmin ? 'admin' : 'coach', coach: coachMatch };
 
   var parentMatch = state.parents.find(function(p) { return p.email.toLowerCase() === email; });
-  if (parentMatch) return { role: 'parent', parent: parentMatch };
+  if (parentMatch) return { role: 'parent', parent: parentMatch, status: parentMatch.status || 'pending' };
 
   return null;
 } 
@@ -2246,6 +2282,17 @@ function doLogin() {
         err.textContent = 'Account exists but no role is assigned. Contact your admin.';
         sb.auth.signOut();
         return;
+      }
+      // Gate unapproved parents
+      if (resolved.role === 'parent') {
+        if (resolved.status === 'pending') {
+          showPendingApprovalScreen(resolved.parent);
+          return;
+        }
+        if (resolved.status === 'rejected') {
+          showRejectedScreen();
+          return;
+        }
       }
       if (resolved.role === 'admin' || resolved.role === 'coach') {
         state.currentCoach = resolved.coach;
@@ -2336,6 +2383,32 @@ if (role === 'parent' && state.currentParent) {
   var errEl = document.getElementById('login-error');
   if (errEl) errEl.textContent = '';
 }
+
+// ===== APPROVAL GATE SCREENS =====
+function showPendingApprovalScreen(parent) {
+  var nameEl = document.getElementById('pending-approval-name');
+  if (nameEl) {
+    nameEl.textContent = parent ? (parent.first + ' ' + parent.last + ' · ' + parent.email) : '';
+  }
+  document.getElementById('pending-approval-screen').style.display = 'flex';
+  var app = document.getElementById('app');
+  if (app) app.style.display = 'none';
+  var login = document.getElementById('login-page');
+  if (login) login.style.display = 'none';
+}
+
+function showRejectedScreen() {
+  document.getElementById('rejected-screen').style.display = 'flex';
+  var app = document.getElementById('app');
+  if (app) app.style.display = 'none';
+  var login = document.getElementById('login-page');
+  if (login) login.style.display = 'none';
+}
+
+function signOut() {
+  if (sb && sb.auth) sb.auth.signOut();
+  location.reload();  // simplest way to reset all UI state
+}
 // ===== PASSWORD RECOVERY (handles links from reset-password emails) =====
 (function detectPasswordRecovery() {
   if (!sb) return;
@@ -2424,6 +2497,17 @@ function submitNewPassword() {
     Promise.all([loadCoaches(), loadParents(), loadPlayers(), loadPlayerNotes(), loadSchedule()]).then(function() {
         var resolved = resolveSupabaseUser(session.user);
         if (!resolved) return;
+        // Gate unapproved parents
+        if (resolved.role === 'parent') {
+          if (resolved.status === 'pending') {
+            showPendingApprovalScreen(resolved.parent);
+            return;
+          }
+          if (resolved.status === 'rejected') {
+            showRejectedScreen();
+            return;
+          }
+        }
         if (resolved.role === 'admin' || resolved.role === 'coach') {
           state.currentCoach = resolved.coach;
           state.currentUser = {
@@ -2569,7 +2653,12 @@ async function regNext() {
       const newUserId = signUpData.user.id;
 
       const { error: parentError } = await sb.from('parents').insert({
-        id: newUserId, first: first, last: last, email: email, phone: phone || null
+        id: newUserId,
+        first: first,
+        last: last,
+        email: email,
+        phone: phone || null,
+        status: 'pending'
       });
 
       if (parentError) {
@@ -2598,7 +2687,7 @@ async function regNext() {
       }
 
       closeModal('register-modal');
-      toast('Account created! You can now sign in.');
+      toast('Account created! Awaiting admin approval before you can sign in.');
       document.getElementById('login-email').value = email;
       document.getElementById('login-password').value = '';
     } catch (e) {
@@ -2747,12 +2836,70 @@ function renderDashboard() {
       <div style="flex:1;"><div style="font-size:13px;font-weight:500;">${p.first} ${p.last}</div><div style="font-size:11px;color:var(--text-secondary);">${p.team} · ${p.grad}</div></div>
       ${p.waiver ? '<span class="pill pill-green">Waiver ✓</span>' : '<span class="pill pill-red">No waiver</span>'}
     </div>`).join('');
+
+  // Pending approvals panel
+  const pendingParents = state.parents.filter(p => p.status === 'pending');
+  const countEl = document.getElementById('dash-pending-count');
+  if (countEl) countEl.textContent = String(pendingParents.length);
+
+  const listEl = document.getElementById('dash-pending-list');
+  if (listEl) {
+    if (!pendingParents.length) {
+      listEl.innerHTML = '<div class="empty" style="padding:20px;"><div class="empty-text" style="font-size:13px;">No pending approvals</div></div>';
+    } else {
+      listEl.innerHTML = pendingParents.map(p => `
+        <div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--gray-border);">
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:13px;font-weight:500;">${p.first} ${p.last}</div>
+            <div style="font-size:11px;color:var(--text-secondary);">${p.email}${p.phone ? ' · ' + p.phone : ''}</div>
+          </div>
+          <div style="display:flex;gap:6px;flex-shrink:0;">
+            <button class="btn btn-sm btn-primary" onclick="approveParent('${p.id}')" style="font-size:11px;padding:4px 10px;">Approve</button>
+            <button class="btn btn-sm btn-danger" onclick="rejectParent('${p.id}')" style="font-size:11px;padding:4px 10px;">Reject</button>
+          </div>
+        </div>
+      `).join('');
+    }
+  }
 }
 
 function openPracticeFromDashboard(practiceId) {
   // Generic navigation to the check-in page; user picks the session there.
   // (No deep-link to a specific practice today — could be a follow-up.)
   showPage('checkin', null);
+}
+
+// ===== PARENT APPROVAL =====
+async function approveParent(parentId) {
+  const p = state.parents.find(x => x.id === parentId);
+  if (!p) return;
+  if (!confirm(`Approve ${p.first} ${p.last}? They'll be able to sign in immediately.`)) return;
+  try {
+    const { error } = await sb.from('parents').update({ status: 'approved' }).eq('id', parentId);
+    if (error) { console.error(error); alert('Approve failed: ' + error.message); return; }
+    await loadParents();
+    renderDashboard();
+    toast(`Approved ${p.first} ${p.last}.`);
+  } catch (e) {
+    console.error('approveParent error:', e);
+    alert('Approve failed: ' + e.message);
+  }
+}
+
+async function rejectParent(parentId) {
+  const p = state.parents.find(x => x.id === parentId);
+  if (!p) return;
+  if (!confirm(`Reject ${p.first} ${p.last}? They won't be able to sign in. You can change this later.`)) return;
+  try {
+    const { error } = await sb.from('parents').update({ status: 'rejected' }).eq('id', parentId);
+    if (error) { console.error(error); alert('Reject failed: ' + error.message); return; }
+    await loadParents();
+    renderDashboard();
+    toast(`Rejected ${p.first} ${p.last}.`);
+  } catch (e) {
+    console.error('rejectParent error:', e);
+    alert('Reject failed: ' + e.message);
+  }
 }
 
 // ===== PRACTICES =====
