@@ -4230,44 +4230,31 @@ function renderPlayerTournaments() {
   const tc = document.getElementById('player-tournament-cards');
   if (!tc) return;
 
-  // All kids belonging to this parent
-  const myKids = state.currentParent
-    ? state.players.filter(p => p.parentId === state.currentParent.id && p.active !== false)
-    : [];
-
-  if (!myKids.length) {
-    tc.innerHTML = '<div class="empty" style="grid-column:1/-1;"><div class="empty-icon">🏆</div><div class="empty-text">No active players on your account.</div></div>';
+  // The currently-selected kid in the player switcher
+  const kid = state.currentUser;
+  if (!kid || !kid.id) {
+    tc.innerHTML = '<div class="empty" style="grid-column:1/-1;"><div class="empty-icon">🏆</div><div class="empty-text">No player selected.</div></div>';
     return;
   }
 
-  const myKidIds = new Set(myKids.map(k => k.id));
-
-  // For each tournament, find which of this parent's kids are rostered (via any tournament_team)
-  const tournamentsWithKids = state.tournaments.map(tour => {
-    const teamsWithMyKids = state.tournamentTeams
+  // For each tournament, collect the teams the selected kid is rostered on
+  const tournamentsWithKid = state.tournaments.map(tour => {
+    const teamsForKid = state.tournamentTeams
       .filter(team => team.tournamentId === tour.id)
-      .filter(team => (team.playerIds || []).some(pid => myKidIds.has(pid)));
+      .filter(team => (team.playerIds || []).includes(kid.id));
 
-    if (!teamsWithMyKids.length) return null;
+    if (!teamsForKid.length) return null;
 
-    const myKidsInThisTournament = myKids
-      .map(kid => {
-        const teamsForKid = teamsWithMyKids.filter(team => (team.playerIds || []).includes(kid.id));
-        if (!teamsForKid.length) return null;
-        return { kid, teams: teamsForKid };
-      })
-      .filter(Boolean);
-
-    return { tournament: tour, myKidsInThisTournament };
+    return { tournament: tour, teams: teamsForKid };
   }).filter(Boolean);
 
-  if (!tournamentsWithKids.length) {
-    tc.innerHTML = '<div class="empty" style="grid-column:1/-1;"><div class="empty-icon">🏆</div><div class="empty-text">No tournaments yet for your kids.</div></div>';
+  if (!tournamentsWithKid.length) {
+    tc.innerHTML = '<div class="empty" style="grid-column:1/-1;"><div class="empty-icon">🏆</div><div class="empty-text">No tournaments yet for ' + kid.first + '.</div></div>';
     return;
   }
 
   // Sort: upcoming asc, past desc
-  tournamentsWithKids.sort((a, b) => {
+  tournamentsWithKid.sort((a, b) => {
     const aPast = isPast(a.tournament.endDate);
     const bPast = isPast(b.tournament.endDate);
     if (aPast !== bPast) return aPast ? 1 : -1;
@@ -4276,129 +4263,116 @@ function renderPlayerTournaments() {
       : a.tournament.startDate.localeCompare(b.tournament.startDate);
   });
 
-  tc.innerHTML = tournamentsWithKids.map(entry => {
+  tc.innerHTML = tournamentsWithKid.map(entry => {
     const t = entry.tournament;
+    const teams = entry.teams;
     const past = isPast(t.endDate);
     const datesStr = fmtDate(t.startDate) + (t.startDate !== t.endDate ? ' – ' + fmtDate(t.endDate) : '');
 
-    const kidSections = entry.myKidsInThisTournament.map(({ kid, teams }) => {
-      const tournRsvp = state.tournamentRsvps.find(r => r.tournamentId === t.id && r.playerId === kid.id);
-      const tournAns = tournRsvp ? tournRsvp.answer : null;
-      const isYes = tournAns === 'yes';
-      const isNo = tournAns === 'no';
+    const tournRsvp = state.tournamentRsvps.find(r => r.tournamentId === t.id && r.playerId === kid.id);
+    const tournAns = tournRsvp ? tournRsvp.answer : null;
+    const isYes = tournAns === 'yes';
+    const isNo = tournAns === 'no';
 
-      // ---- ROSTER DISPLAY (always visible, even before RSVP) ----
-      const rosterSections = teams.map(team => {
-        const rosterPlayers = (team.playerIds || [])
-          .map(pid => state.players.find(p => p.id === pid))
-          .filter(Boolean)
-          .sort((a, b) => (a.last + a.first).localeCompare(b.last + b.first));
+    // ---- ROSTER DISPLAY (always visible) ----
+    const rosterSections = teams.map(team => {
+      const rosterPlayers = (team.playerIds || [])
+        .map(pid => state.players.find(p => p.id === pid))
+        .filter(Boolean)
+        .sort((a, b) => (a.last + a.first).localeCompare(b.last + b.first));
 
-        const teamCoaches = (team.coachIds || [])
-          .map(cid => state.coaches.find(c => c.id === cid))
-          .filter(Boolean);
+      const teamCoaches = (team.coachIds || [])
+        .map(cid => state.coaches.find(c => c.id === cid))
+        .filter(Boolean);
 
-        const coachesLine = teamCoaches.length
-          ? teamCoaches.map(c => c.first + ' ' + c.last).join(', ')
-          : '<span style="color:var(--text-secondary);font-style:italic;">No coaches assigned yet</span>';
+      const coachesLine = teamCoaches.length
+        ? teamCoaches.map(c => c.first + ' ' + c.last).join(', ')
+        : '<span style="color:var(--text-secondary);font-style:italic;">No coaches assigned yet</span>';
 
-        const rosterHtml = rosterPlayers.length
-          ? rosterPlayers.map(p => {
-              const isThisKid = p.id === kid.id;
-              const gradStr = p.grad ? ' · ' + p.grad : '';
-              return `<li style="font-size:13px;padding:3px 0;${isThisKid ? 'font-weight:600;color:var(--orange-mid);' : ''}">
-                ${p.first} ${p.last}${gradStr}${isThisKid ? ' <span style="font-size:10px;color:var(--text-secondary);">(your kid)</span>' : ''}
-              </li>`;
-            }).join('')
-          : '<li style="font-size:12px;color:var(--text-secondary);font-style:italic;">No players on roster yet</li>';
+      const rosterHtml = rosterPlayers.length
+        ? rosterPlayers.map(p => {
+            const isThisKid = p.id === kid.id;
+            const gradStr = p.grad ? ' · ' + p.grad : '';
+            return `<li style="font-size:13px;padding:3px 0;${isThisKid ? 'font-weight:600;color:var(--orange-mid);' : ''}">
+              ${p.first} ${p.last}${gradStr}${isThisKid ? ' <span style="font-size:10px;color:var(--text-secondary);">(your kid)</span>' : ''}
+            </li>`;
+          }).join('')
+        : '<li style="font-size:12px;color:var(--text-secondary);font-style:italic;">No players on roster yet</li>';
 
-        return `<div style="background:var(--gray-bg);border-radius:6px;padding:10px 12px;margin-bottom:8px;">
-          <div style="font-size:11px;font-weight:700;color:var(--orange-mid);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">
-            ${team.name}
-          </div>
-          <div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px;">
-            👤 Coach${teamCoaches.length === 1 ? '' : 'es'}: ${coachesLine}
-          </div>
-          <div style="font-size:10px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;">
-            Roster (${rosterPlayers.length})
-          </div>
-          <ul style="margin:0;padding-left:18px;">
-            ${rosterHtml}
-          </ul>
-        </div>`;
-      }).join('');
-
-      // ---- GAMES (only when tournament RSVP is yes) ----
-      let gamesHtml = '';
-      if (isYes && !past) {
-        const allGames = teams.flatMap(team =>
-          state.tournamentGames
-            .filter(g => g.tournamentTeamId === team.id)
-            .map(g => ({ ...g, teamName: team.name }))
-        ).sort((a, b) => {
-          if (a.date !== b.date) return a.date.localeCompare(b.date);
-          return (a.start || '').localeCompare(b.start || '');
-        });
-
-        if (!allGames.length) {
-          gamesHtml = `<div style="margin-top:10px;padding:10px;background:var(--gray-bg);border-radius:6px;font-size:12px;color:var(--text-secondary);font-style:italic;">No games scheduled yet for ${kid.first}'s team(s).</div>`;
-        } else {
-          gamesHtml = `<div style="margin-top:10px;">
-            <div style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">${kid.first}'s games</div>
-            ${allGames.map(g => {
-              const gRsvp = state.tournamentGameRsvps.find(r => r.gameId === g.id && r.playerId === kid.id);
-              const gAns = gRsvp ? gRsvp.answer : null;
-              const gIsYes = gAns === 'yes';
-              const gIsNo = gAns === 'no';
-              const timeStr = g.start ? fmtTime(g.start) + (g.end ? '–' + fmtTime(g.end) : '') : 'TBD';
-              const opponentStr = g.opponent ? ' vs ' + g.opponent : '';
-              const locStr = g.location ? ' · 📍 ' + g.location : '';
-
-              return `<div style="background:#fff;border:1px solid var(--gray-border);border-radius:6px;padding:10px;margin-bottom:6px;">
-                <div style="font-size:13px;font-weight:500;margin-bottom:2px;">
-                  ${g.teamName} · ${fmtDate(g.date)} · ${timeStr}${opponentStr}
-                </div>
-                ${locStr ? `<div style="font-size:11px;color:var(--text-secondary);margin-bottom:8px;">${locStr.replace(/^ · /, '')}</div>` : '<div style="margin-bottom:8px;"></div>'}
-                <div style="display:flex;gap:6px;">
-                  <button class="btn btn-sm" onclick="setGameRsvp('${g.id}','${kid.id}','yes')"
-                    style="flex:1;background:${gIsYes?'var(--teal)':'transparent'};color:${gIsYes?'#fff':'var(--teal-dark)'};border-color:${gIsYes?'var(--teal)':'#9FE1CB'};">
-                    ✓ Yes
-                  </button>
-                  <button class="btn btn-sm" onclick="setGameRsvp('${g.id}','${kid.id}','no')"
-                    style="flex:1;background:${gIsNo?'#E24B4A':'transparent'};color:${gIsNo?'#fff':'#A32D2D'};border-color:${gIsNo?'#E24B4A':'#F7C1C1'};">
-                    ✗ No
-                  </button>
-                </div>
-              </div>`;
-            }).join('')}
-          </div>`;
-        }
-      }
-
-      const tournamentRsvpHtml = past ? '' : `
-        <div style="display:flex;gap:8px;margin-top:6px;">
-          <button class="btn btn-sm" onclick="setTournRsvp('${t.id}','${kid.id}','yes')"
-            style="flex:1;background:${isYes?'var(--teal)':'transparent'};color:${isYes?'#fff':'var(--teal-dark)'};border-color:${isYes?'var(--teal)':'#9FE1CB'};">
-            ✓ Yes
-          </button>
-          <button class="btn btn-sm" onclick="setTournRsvp('${t.id}','${kid.id}','no')"
-            style="flex:1;background:${isNo?'#E24B4A':'transparent'};color:${isNo?'#fff':'#A32D2D'};border-color:${isNo?'#E24B4A':'#F7C1C1'};">
-            ✗ No
-          </button>
-        </div>`;
-
-      return `<div style="border-top:1px solid var(--gray-border);padding-top:12px;margin-top:12px;">
-        <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:8px;">
-          <div style="font-size:14px;font-weight:600;">${kid.first} ${kid.last}</div>
+      return `<div style="background:var(--gray-bg);border-radius:6px;padding:10px 12px;margin-bottom:8px;">
+        <div style="font-size:11px;font-weight:700;color:var(--orange-mid);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">
+          ${team.name}
         </div>
-        ${rosterSections}
-        ${past
-          ? `<div style="font-size:12px;color:var(--text-secondary);font-style:italic;margin-top:6px;">Tournament complete.</div>`
-          : `<div style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-top:8px;">Going to event?</div>${tournamentRsvpHtml}`
-        }
-        ${gamesHtml}
+        <div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px;">
+          👤 Coach${teamCoaches.length === 1 ? '' : 'es'}: ${coachesLine}
+        </div>
+        <div style="font-size:10px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;">
+          Roster (${rosterPlayers.length})
+        </div>
+        <ul style="margin:0;padding-left:18px;">
+          ${rosterHtml}
+        </ul>
       </div>`;
     }).join('');
+
+    // ---- GAMES (only when tournament RSVP is yes) ----
+    let gamesHtml = '';
+    if (isYes && !past) {
+      const allGames = teams.flatMap(team =>
+        state.tournamentGames
+          .filter(g => g.tournamentTeamId === team.id)
+          .map(g => ({ ...g, teamName: team.name }))
+      ).sort((a, b) => {
+        if (a.date !== b.date) return a.date.localeCompare(b.date);
+        return (a.start || '').localeCompare(b.start || '');
+      });
+
+      if (!allGames.length) {
+        gamesHtml = `<div style="margin-top:10px;padding:10px;background:var(--gray-bg);border-radius:6px;font-size:12px;color:var(--text-secondary);font-style:italic;">No games scheduled yet for ${kid.first}'s team(s).</div>`;
+      } else {
+        gamesHtml = `<div style="margin-top:10px;">
+          <div style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">${kid.first}'s games</div>
+          ${allGames.map(g => {
+            const gRsvp = state.tournamentGameRsvps.find(r => r.gameId === g.id && r.playerId === kid.id);
+            const gAns = gRsvp ? gRsvp.answer : null;
+            const gIsYes = gAns === 'yes';
+            const gIsNo = gAns === 'no';
+            const timeStr = g.start ? fmtTime(g.start) + (g.end ? '–' + fmtTime(g.end) : '') : 'TBD';
+            const opponentStr = g.opponent ? ' vs ' + g.opponent : '';
+            const locStr = g.location ? ' · 📍 ' + g.location : '';
+
+            return `<div style="background:#fff;border:1px solid var(--gray-border);border-radius:6px;padding:10px;margin-bottom:6px;">
+              <div style="font-size:13px;font-weight:500;margin-bottom:2px;">
+                ${g.teamName} · ${fmtDate(g.date)} · ${timeStr}${opponentStr}
+              </div>
+              ${locStr ? `<div style="font-size:11px;color:var(--text-secondary);margin-bottom:8px;">${locStr.replace(/^ · /, '')}</div>` : '<div style="margin-bottom:8px;"></div>'}
+              <div style="display:flex;gap:6px;">
+                <button class="btn btn-sm" onclick="setGameRsvp('${g.id}','${kid.id}','yes')"
+                  style="flex:1;background:${gIsYes?'var(--teal)':'transparent'};color:${gIsYes?'#fff':'var(--teal-dark)'};border-color:${gIsYes?'var(--teal)':'#9FE1CB'};">
+                  ✓ Yes
+                </button>
+                <button class="btn btn-sm" onclick="setGameRsvp('${g.id}','${kid.id}','no')"
+                  style="flex:1;background:${gIsNo?'#E24B4A':'transparent'};color:${gIsNo?'#fff':'#A32D2D'};border-color:${gIsNo?'#E24B4A':'#F7C1C1'};">
+                  ✗ No
+                </button>
+              </div>
+            </div>`;
+          }).join('')}
+        </div>`;
+      }
+    }
+
+    const tournamentRsvpHtml = past ? '' : `
+      <div style="display:flex;gap:8px;margin-top:6px;">
+        <button class="btn btn-sm" onclick="setTournRsvp('${t.id}','${kid.id}','yes')"
+          style="flex:1;background:${isYes?'var(--teal)':'transparent'};color:${isYes?'#fff':'var(--teal-dark)'};border-color:${isYes?'var(--teal)':'#9FE1CB'};">
+          ✓ Yes
+        </button>
+        <button class="btn btn-sm" onclick="setTournRsvp('${t.id}','${kid.id}','no')"
+          style="flex:1;background:${isNo?'#E24B4A':'transparent'};color:${isNo?'#fff':'#A32D2D'};border-color:${isNo?'#E24B4A':'#F7C1C1'};">
+          ✗ No
+        </button>
+      </div>`;
 
     return `<div class="panel">
       <div style="padding:14px 16px;">
@@ -4409,8 +4383,15 @@ function renderPlayerTournaments() {
           </div>
           <span class="pill ${past ? 'pill-gray' : 'pill-orange'}">${past ? 'Past' : 'Upcoming'}</span>
         </div>
-        ${t.notes ? `<div style="font-size:12px;color:var(--text-secondary);font-style:italic;margin-top:4px;">${t.notes}</div>` : ''}
-        ${kidSections}
+        ${t.notes ? `<div style="font-size:12px;color:var(--text-secondary);font-style:italic;margin-top:4px;margin-bottom:10px;">${t.notes}</div>` : '<div style="margin-bottom:10px;"></div>'}
+
+        ${rosterSections}
+
+        ${past
+          ? `<div style="font-size:12px;color:var(--text-secondary);font-style:italic;margin-top:6px;">Tournament complete.</div>`
+          : `<div style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-top:8px;">Going to event?</div>${tournamentRsvpHtml}`
+        }
+        ${gamesHtml}
       </div>
     </div>`;
   }).join('');
