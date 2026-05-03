@@ -787,15 +787,7 @@ body:not([data-role="admin"]) .btn.admin-only {
       <div id="reg-step-4" style="display:none;">
         <div style="font-size:12px;font-weight:600;color:var(--green-dark);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:12px;">Step 4 of 4 — Workout Waiver</div>
         <div class="alert alert-info" style="margin-bottom:14px;">📋 Please read and agree to the 3Ball Academy workout waiver below.</div>
-        <div class="waiver-box">
-          <strong>3Ball Academy Workout Waiver & Health Acknowledgment</strong><br><br>
-          I understand that participation in 3Ball Academy workouts, practices, clinics, and tournaments involves physical activity and carries inherent risks of injury. I voluntarily assume all risks associated with participation.<br><br>
-          I confirm that the participant is in good physical health and has no known medical conditions that would prevent safe participation. I agree to notify 3Ball Academy coaches immediately of any injury, illness, or change in health status.<br><br>
-          I grant 3Ball Academy permission to seek emergency medical treatment if necessary. I understand that 3Ball Academy, its coaches, and volunteers are not responsible for injury, illness, loss of equipment, or other damages arising from participation.<br><br>
-          I agree that the participant will follow all 3Ball Academy rules, team standards, and coach instructions. I understand that failure to do so may result in removal from workouts without refund.<br><br>
-          I acknowledge and agree to the fan/parent decorum standards set by 3Ball Academy. Disruptive behavior by parents or spectators may result in the player's removal from the program.<br><br>
-          This waiver is valid for the current 3Ball Academy season. By checking the box below, I confirm I have read, understood, and agree to these terms.
-        </div>
+        <div class="waiver-box" id="reg-waiver-display" style="white-space:pre-wrap;">Loading waiver…</div>
         <label class="form-check" style="margin-top:10px;">
           <input type="checkbox" id="waiver-agree" style="accent-color:var(--green-dark);">
           <span class="form-check-label">I have read and agree to the 3Ball Academy Workout Waiver & Health Acknowledgment on behalf of all registered players.</span>
@@ -1735,7 +1727,7 @@ let state = {
   viewingTournamentId: null,
   editingGameTeamId: null,
   coaches: [],
-  waiver: `3Ball Academy Workout Waiver & Health Acknowledgment\n\nI understand that participation in 3Ball Academy workouts, practices, clinics, and tournaments involves physical activity and carries inherent risks of injury. I voluntarily assume all risks associated with participation.\n\nI confirm that the participant is in good physical health and has no known medical conditions that would prevent safe participation. I agree to notify 3Ball Academy coaches immediately of any injury, illness, or change in health status.\n\nI grant 3Ball Academy permission to seek emergency medical treatment if necessary. I understand that 3Ball Academy, its coaches, and volunteers are not responsible for injury, illness, loss of equipment, or other damages arising from participation.\n\nI agree that the participant will follow all 3Ball Academy rules, team standards, and coach instructions.\n\nThis waiver is valid for the current 3Ball Academy season. By checking the box below, I confirm I have read, understood, and agree to these terms.`
+  waiver: ''
 };
 
 // ===== HELPERS =====
@@ -1900,6 +1892,20 @@ if (SUPABASE_URL && SUPABASE_ANON_KEY && window.supabase) {
     auth: { persistSession: true, autoRefreshToken: true, storageKey: '3ball-auth' }
   });
 }
+
+async function loadSettings() {
+  if (!sb) return;
+  try {
+    const { data, error } = await sb.from('settings').select('waiver_text').eq('id', 1).maybeSingle();
+    if (error) { console.error('loadSettings error:', error); return; }
+    if (data) {
+      state.waiver = data.waiver_text || '';
+    }
+  } catch (e) { console.error('loadSettings threw:', e); }
+}
+
+// Boot-time fetch — covers the pre-login case (registration form needs the waiver).
+if (sb) { loadSettings(); }
 
 var loginRole = 'player';
 function setLoginRole(role, el) {
@@ -2281,7 +2287,7 @@ function doLogin() {
       err.textContent = 'Invalid email or password.';
       return;
     }
-   Promise.all([loadCoaches(), loadParents(), loadPlayers(), loadPlayerNotes(), loadSchedule()]).then(function() {
+   Promise.all([loadCoaches(), loadParents(), loadPlayers(), loadPlayerNotes(), loadSchedule(), loadSettings()]).then(function() {
       var resolved = resolveSupabaseUser(result.data.user);
       if (!resolved) {
         err.textContent = 'Account exists but no role is assigned. Contact your admin.';
@@ -2328,7 +2334,7 @@ function enterApp(role) {
   document.getElementById('login-page').style.display = 'none';
   document.getElementById('app').style.display = 'block';
 
-Promise.all([loadLocations(), loadCoaches(), loadParents(), loadPlayers(), loadPlayerNotes(), loadSchedule()]).then(function() {
+Promise.all([loadLocations(), loadCoaches(), loadParents(), loadPlayers(), loadPlayerNotes(), loadSchedule(), loadSettings()]).then(function() {
     if (typeof renderLocations === 'function') renderLocations();
     if (typeof renderCoachManagement === 'function') renderCoachManagement();
 
@@ -2499,7 +2505,7 @@ function submitNewPassword() {
   sb.auth.getSession().then(function(result) {
     var session = result.data && result.data.session;
     if (!session || !session.user) return;
-    Promise.all([loadCoaches(), loadParents(), loadPlayers(), loadPlayerNotes(), loadSchedule()]).then(function() {
+    Promise.all([loadCoaches(), loadParents(), loadPlayers(), loadPlayerNotes(), loadSchedule(), loadSettings()]).then(function() {
         var resolved = resolveSupabaseUser(session.user);
         if (!resolved) return;
         // Gate unapproved parents
@@ -2543,6 +2549,8 @@ let regPlayerForms = []; // staged player data
 function showRegisterModal() {
   regStep = 1;
   regPlayerForms = [{}];
+  // Best-effort fetch if waiver text wasn't loaded yet (e.g. boot-time call lost a race)
+  if (!state.waiver && sb) loadSettings();
   openModal('register-modal');
   showRegStep(1);
 }
@@ -2556,6 +2564,10 @@ function showRegStep(n) {
   const labels = {1:'Next: Add Players →', 2:'Next: Privacy & Terms →', 3:'Next: Waiver →', 4:'Complete Registration'};
   document.getElementById('reg-next-btn').textContent = labels[n];
   if (n===2) renderRegPlayerForms();
+  if (n===4) {
+    const waiverEl = document.getElementById('reg-waiver-display');
+    if (waiverEl) waiverEl.textContent = state.waiver || 'Waiver text not yet loaded — please refresh and try again.';
+  }
 }
 
 function regBack() {
@@ -4053,7 +4065,25 @@ async function deleteLocation(id) {
   renderLocations();
   toast('Location deleted');
 }
-function saveWaiver() { state.waiver = document.getElementById('waiver-editor').value; toast('Waiver saved!'); }
+async function saveWaiver() {
+  if (!sb) { alert('Auth not ready.'); return; }
+  const newWaiver = document.getElementById('waiver-editor').value;
+  if (!newWaiver.trim()) {
+    alert('Waiver text cannot be empty.');
+    return;
+  }
+  try {
+    const { error } = await sb.from('settings')
+      .update({ waiver_text: newWaiver })
+      .eq('id', 1);
+    if (error) { console.error(error); alert('Save failed: ' + error.message); return; }
+    state.waiver = newWaiver;  // optimistic local update
+    toast('Waiver saved!');
+  } catch (e) {
+    console.error('saveWaiver error:', e);
+    alert('Save failed: ' + e.message);
+  }
+}
 function saveAcademyInfo() { toast('Academy info saved!'); }
 
 // ===== PLAYER PORTAL =====
