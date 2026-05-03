@@ -974,6 +974,32 @@ body:not([data-role="admin"]) .btn.admin-only {
           <div id="tournament-cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;"></div>
         </div>
 
+        <!-- TOURNAMENT DETAIL -->
+        <div class="page" id="page-tournament-detail">
+          <div class="section-header">
+            <button class="btn btn-sm" onclick="showPage('tournaments', null)" style="display:flex;align-items:center;gap:6px;">
+              <span>←</span> Back to tournaments
+            </button>
+            <div style="flex:1;"></div>
+            <button class="btn btn-sm" onclick="editTournamentFromDetail()">Edit Tournament</button>
+            <button class="btn btn-sm btn-danger" onclick="deleteTournamentFromDetail()">Delete Tournament</button>
+          </div>
+
+          <div class="panel" style="margin-bottom:14px;">
+            <div style="padding:14px 16px;">
+              <div id="td-name" style="font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:700;"></div>
+              <div id="td-dates" style="font-size:13px;color:var(--text-secondary);margin-top:4px;"></div>
+              <div id="td-notes" style="font-size:13px;color:var(--text-secondary);margin-top:8px;"></div>
+            </div>
+          </div>
+
+          <div class="section-header">
+            <span class="section-title">Teams</span>
+            <button class="btn btn-primary btn-sm" onclick="openTeamModal(null)">+ Add Team</button>
+          </div>
+          <div id="td-teams-list"></div>
+        </div>
+
         <!-- CHECK-IN -->
         <div class="page" id="page-checkin">
           <div class="section-header">
@@ -1559,6 +1585,36 @@ body:not([data-role="admin"]) .btn.admin-only {
   </div>
 </div>
 
+<!-- Tournament Team Modal -->
+<div class="modal-overlay" id="team-modal">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-header">
+      <span class="modal-title" id="team-modal-title">Add Team</span>
+      <button class="modal-close" onclick="closeModal('team-modal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Team Name</label>
+        <input class="form-input" id="tm-name" placeholder="e.g., B+, Girls Combined" required>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Coaches</label>
+        <div id="tm-coaches" style="display:flex;flex-wrap:wrap;gap:8px;padding:8px;background:var(--gray-bg);border-radius:6px;"></div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Players (grouped by practice team)</label>
+        <div id="tm-players" style="max-height:340px;overflow-y:auto;padding:8px;background:var(--gray-bg);border-radius:6px;"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('team-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveTeam()">Save</button>
+    </div>
+  </div>
+</div>
+
 <!-- Player Modal -->
 <!-- Location Modal -->
 <div class="modal-overlay" id="location-modal">
@@ -1598,6 +1654,7 @@ let state = {
   locations: [],
   currentParent: null,
   currentCoach: null,
+  viewingTournamentId: null,
   coaches: [],
   waiver: `3Ball Academy Workout Waiver & Health Acknowledgment\n\nI understand that participation in 3Ball Academy workouts, practices, clinics, and tournaments involves physical activity and carries inherent risks of injury. I voluntarily assume all risks associated with participation.\n\nI confirm that the participant is in good physical health and has no known medical conditions that would prevent safe participation. I agree to notify 3Ball Academy coaches immediately of any injury, illness, or change in health status.\n\nI grant 3Ball Academy permission to seek emergency medical treatment if necessary. I understand that 3Ball Academy, its coaches, and volunteers are not responsible for injury, illness, loss of equipment, or other damages arising from participation.\n\nI agree that the participant will follow all 3Ball Academy rules, team standards, and coach instructions.\n\nThis waiver is valid for the current 3Ball Academy season. By checking the box below, I confirm I have read, understood, and agree to these terms.`
 };
@@ -1663,6 +1720,7 @@ function showPage(id, navEl) {
 
   const titles = {
     dashboard:'Dashboard', practices:'Practices', tournaments:'Tournaments',
+    'tournament-detail':'Tournament',
     checkin:'Player Check-in', roster:'Player Roster', attendance:'Response Reports',
     calendar:'Master Calendar',
     settings:'Settings', 'player-home':'Home', 'player-schedule':'My Schedule',
@@ -1682,6 +1740,7 @@ function showPage(id, navEl) {
   if (id === 'dashboard') renderDashboard();
   if (id === 'practices') { renderPractices('upcoming'); }
   if (id === 'tournaments') renderTournaments();
+  if (id === 'tournament-detail') renderTournamentDetail();
   if (id === 'checkin') renderCheckinPage();
   if (id === 'roster') renderRoster();
   if (id === 'attendance') { renderAttendanceReport(); renderAttendanceSummary(); }
@@ -2734,7 +2793,7 @@ function renderTournaments() {
     });
     const teamSummary = Object.keys(teamCounts).length ? Object.entries(teamCounts).map(([team,cnt])=>`<span style="font-size:11px;background:var(--teal-light);color:var(--teal-dark);border:1px solid #9FE1CB;border-radius:4px;padding:1px 6px;margin-right:3px;">${team}: ${cnt} ✓</span>`).join('') : '';
     const isAdmin = state.currentUser && state.currentUser.isAdmin;
-    return `<div class="panel" style="cursor:pointer;" onclick="showTournRoster('${t.id}')">
+    return `<div class="panel" style="cursor:pointer;" onclick="openTournamentDetail('${t.id}')">
       <div style="padding:14px 16px;">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px;">
           <div>
@@ -2749,7 +2808,7 @@ function renderTournaments() {
         <div style="display:flex;gap:6px;margin-top:10px;border-top:1px solid var(--gray-border);padding-top:10px;" onclick="event.stopPropagation()">
           ${isAdmin ? `<button class="btn btn-sm" onclick="editTournament('${t.id}')">Edit</button>
           <button class="btn btn-sm btn-danger" onclick="deleteTournament('${t.id}')">Delete</button>` : ''}
-          <span style="margin-left:auto;font-size:11px;color:var(--text-secondary);align-self:center;">Click card to view roster →</span>
+          <span style="margin-left:auto;font-size:11px;color:var(--text-secondary);align-self:center;">Click card to manage teams →</span>
         </div>
       </div>
     </div>`;
@@ -2792,6 +2851,7 @@ async function saveTournament() {
     closeModal('tournament-modal');
     await loadSchedule();
     renderTournaments();
+    if (state.viewingTournamentId) renderTournamentDetail();
   } catch (e) {
     console.error('saveTournament threw:', e);
     alert('Could not save the tournament.');
@@ -2805,6 +2865,225 @@ async function deleteTournament(id) {
   await loadSchedule();
   renderTournaments();
   toast('Tournament deleted.');
+}
+
+// ===== TOURNAMENT DETAIL PAGE =====
+function openTournamentDetail(tournamentId) {
+  state.viewingTournamentId = tournamentId;
+  showPage('tournament-detail', null);
+}
+
+function renderTournamentDetail() {
+  const t = state.tournaments.find(x => x.id === state.viewingTournamentId);
+  if (!t) {
+    // Tournament was deleted or no ID set — bounce back
+    showPage('tournaments', null);
+    return;
+  }
+
+  document.getElementById('td-name').textContent = t.name;
+  document.getElementById('td-dates').textContent = fmtDate(t.startDate) +
+    (t.startDate !== t.endDate ? ' – ' + fmtDate(t.endDate) : '');
+  document.getElementById('td-notes').textContent = t.notes || '';
+
+  const teams = state.tournamentTeams.filter(tm => tm.tournamentId === t.id);
+  const list = document.getElementById('td-teams-list');
+
+  if (!teams.length) {
+    list.innerHTML = `<div class="panel"><div class="empty">
+      <div class="empty-icon">👥</div>
+      <div class="empty-text">No teams yet. Add one to get started.</div>
+    </div></div>`;
+    return;
+  }
+
+  list.innerHTML = teams.map(tm => {
+    const players = (tm.playerIds || [])
+      .map(pid => state.players.find(p => p.id === pid))
+      .filter(Boolean);
+    const coaches = (tm.coachIds || [])
+      .map(cid => state.coaches.find(c => c.id === cid))
+      .filter(Boolean);
+
+    // Group roster by practice team for display
+    const byTeam = {};
+    players.forEach(p => {
+      const team = p.team || '—';
+      if (!byTeam[team]) byTeam[team] = [];
+      byTeam[team].push(p);
+    });
+    const TEAM_ORDER = ['T','C','B','G','O','3BHS','3BGals'];
+    const sortedTeamKeys = TEAM_ORDER.filter(k => byTeam[k]).concat(
+      Object.keys(byTeam).filter(k => !TEAM_ORDER.includes(k))
+    );
+
+    const coachesLine = coaches.length
+      ? coaches.map(c => c.first + ' ' + c.last).join(', ')
+      : '<span style="color:var(--text-secondary);font-style:italic;">No coaches assigned</span>';
+
+    const rosterHtml = sortedTeamKeys.length
+      ? sortedTeamKeys.map(team => `
+          <div style="margin-bottom:6px;">
+            <span class="team-tag" style="background:var(--orange-light);color:var(--orange-mid);">${team}</span>
+            <span style="font-size:13px;margin-left:6px;">
+              ${byTeam[team].map(p => p.first + ' ' + p.last).join(', ')}
+            </span>
+          </div>`).join('')
+      : '<span style="color:var(--text-secondary);font-style:italic;font-size:13px;">No players on roster</span>';
+
+    return `
+      <div class="panel" style="margin-bottom:12px;">
+        <div style="padding:14px 16px;">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px;">
+            <div>
+              <div style="font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:700;">${tm.name}</div>
+              <div style="font-size:12px;color:var(--text-secondary);margin-top:2px;">
+                ${players.length} ${players.length === 1 ? 'player' : 'players'} · 👤 ${coachesLine}
+              </div>
+            </div>
+            <div style="display:flex;gap:6px;">
+              <button class="btn btn-sm" onclick="editTeam('${tm.id}')">Edit</button>
+              <button class="btn btn-sm btn-danger" onclick="deleteTeam('${tm.id}')">Delete</button>
+            </div>
+          </div>
+          <div style="border-top:1px solid var(--gray-border);padding-top:10px;">
+            ${rosterHtml}
+          </div>
+          <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--gray-border);font-size:12px;color:var(--text-secondary);font-style:italic;">
+            🎮 Games for this team — coming next
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function editTournamentFromDetail() {
+  if (!state.viewingTournamentId) return;
+  editTournament(state.viewingTournamentId);
+}
+
+async function deleteTournamentFromDetail() {
+  if (!state.viewingTournamentId) return;
+  const t = state.tournaments.find(x => x.id === state.viewingTournamentId);
+  if (!t) return;
+  if (!confirm(`Delete "${t.name}"? This will remove all teams and games inside it.`)) return;
+  await deleteTournament(state.viewingTournamentId);
+  state.viewingTournamentId = null;
+  showPage('tournaments', null);
+}
+
+// ===== TOURNAMENT TEAM CRUD =====
+function openTeamModal(teamId) {
+  state.editingId = teamId || null;
+  const tm = teamId ? state.tournamentTeams.find(x => x.id === teamId) : null;
+  document.getElementById('team-modal-title').textContent = tm ? 'Edit Team' : 'Add Team';
+  document.getElementById('tm-name').value = tm ? tm.name : '';
+
+  // Render coaches checkboxes
+  const coachContainer = document.getElementById('tm-coaches');
+  if (!state.coaches.length) {
+    coachContainer.innerHTML = '<span style="font-size:13px;color:var(--text-secondary);">No coaches available</span>';
+  } else {
+    coachContainer.innerHTML = state.coaches.map(c => {
+      const checked = tm && (tm.coachIds || []).includes(c.id);
+      return `<label style="display:flex;align-items:center;gap:6px;padding:4px 10px;background:#fff;border:1px solid var(--gray-border);border-radius:6px;cursor:pointer;font-size:13px;">
+        <input type="checkbox" value="${c.id}" ${checked ? 'checked' : ''}>
+        ${c.first} ${c.last}
+      </label>`;
+    }).join('');
+  }
+
+  // Render players grouped by practice team
+  const playerContainer = document.getElementById('tm-players');
+  const activePlayers = state.players.filter(p => p.active !== false);
+  if (!activePlayers.length) {
+    playerContainer.innerHTML = '<span style="font-size:13px;color:var(--text-secondary);">No active players</span>';
+  } else {
+    const byTeam = {};
+    activePlayers.forEach(p => {
+      const team = p.team || '—';
+      if (!byTeam[team]) byTeam[team] = [];
+      byTeam[team].push(p);
+    });
+    const TEAM_ORDER = ['T','C','B','G','O','3BHS','3BGals'];
+    const sortedKeys = TEAM_ORDER.filter(k => byTeam[k]).concat(
+      Object.keys(byTeam).filter(k => !TEAM_ORDER.includes(k))
+    );
+    const editingPlayerIds = tm ? (tm.playerIds || []) : [];
+
+    playerContainer.innerHTML = sortedKeys.map(team => {
+      const players = byTeam[team].sort((a, b) => (a.last + a.first).localeCompare(b.last + b.first));
+      return `
+        <div style="margin-bottom:12px;">
+          <div style="font-size:11px;font-weight:700;color:var(--orange-mid);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;padding-bottom:3px;border-bottom:1px solid var(--orange-light);">
+            ${team}
+          </div>
+          ${players.map(p => {
+            const checked = editingPlayerIds.includes(p.id);
+            return `<label style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:#fff;border-radius:4px;margin-bottom:3px;cursor:pointer;font-size:13px;">
+              <input type="checkbox" value="${p.id}" ${checked ? 'checked' : ''}>
+              ${p.first} ${p.last}${p.grad ? ' · ' + p.grad : ''}
+            </label>`;
+          }).join('')}
+        </div>`;
+    }).join('');
+  }
+
+  openModal('team-modal');
+}
+
+function editTeam(id) { openTeamModal(id); }
+
+async function saveTeam() {
+  const name = document.getElementById('tm-name').value.trim();
+  if (!name) { alert('Team name is required.'); return; }
+  if (!state.viewingTournamentId) { alert('No tournament context — refresh the page.'); return; }
+
+  const coachIds = Array.from(document.querySelectorAll('#tm-coaches input:checked')).map(cb => cb.value);
+  const playerIds = Array.from(document.querySelectorAll('#tm-players input:checked')).map(cb => cb.value);
+
+  const row = {
+    tournament_id: state.viewingTournamentId,
+    name: name,
+    player_ids: playerIds,
+    coach_ids: coachIds
+  };
+
+  try {
+    if (state.editingId) {
+      const { error } = await sb.from('tournament_teams').update(row).eq('id', state.editingId);
+      if (error) { console.error(error); alert('Save failed: ' + error.message); return; }
+      toast('Team updated!');
+    } else {
+      const { error } = await sb.from('tournament_teams').insert(row);
+      if (error) { console.error(error); alert('Save failed: ' + error.message); return; }
+      toast('Team added!');
+    }
+    await loadTournamentTeams();
+    closeModal('team-modal');
+    renderTournamentDetail();
+  } catch (e) {
+    console.error('saveTeam error:', e);
+    alert('Save failed: ' + e.message);
+  }
+}
+
+async function deleteTeam(id) {
+  const tm = state.tournamentTeams.find(x => x.id === id);
+  if (!tm) return;
+  if (!confirm(`Delete team "${tm.name}"? Any games scheduled for this team will also be deleted.`)) return;
+  try {
+    const { error } = await sb.from('tournament_teams').delete().eq('id', id);
+    if (error) { console.error(error); alert('Delete failed: ' + error.message); return; }
+    await loadTournamentTeams();
+    // Games cascade-delete via FK, but reload to keep state in sync
+    await loadTournamentGames();
+    renderTournamentDetail();
+    toast('Team deleted.');
+  } catch (e) {
+    console.error('deleteTeam error:', e);
+    alert('Delete failed: ' + e.message);
+  }
 }
 
 // ===== CHECK-IN =====
