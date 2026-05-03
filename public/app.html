@@ -914,6 +914,11 @@ body:not([data-role="admin"]) .btn.admin-only {
               <div class="stat-sub">upcoming</div>
             </div>
           </div>
+          <div id="dash-no-team-alert" style="display:none;background:var(--orange-light);border:1px solid var(--orange-mid);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;">
+            <span style="font-weight:600;color:var(--orange-mid);">⚠️</span>
+            <span id="dash-no-team-alert-text"></span>
+            <button class="btn btn-sm" onclick="showPage('roster', document.querySelector('[onclick*=roster]'))" style="margin-left:8px;font-size:11px;padding:3px 10px;">View Roster →</button>
+          </div>
           <div class="two-col">
             <div class="panel">
               <div class="panel-header">
@@ -2673,7 +2678,7 @@ async function regNext() {
             parent_id: newUserId,
             first: p.first.trim(),
             last: p.last.trim(),
-            team: p.team || null,
+            team: null,                                 // parents don't pick teams
             grad_year: p.grad ? parseInt(p.grad, 10) : null,
             waiver_signed: true,
             waiver_signed_at: new Date().toISOString()
@@ -2859,6 +2864,20 @@ function renderDashboard() {
           </div>
         </div>
       `).join('');
+    }
+  }
+
+  // Alert: any active players without a team
+  const noTeamPlayers = state.players.filter(p => !p.team && p.active !== false);
+  const alertEl = document.getElementById('dash-no-team-alert');
+  const alertTextEl = document.getElementById('dash-no-team-alert-text');
+  if (alertEl && alertTextEl) {
+    if (noTeamPlayers.length > 0) {
+      alertTextEl.textContent = ' ' + noTeamPlayers.length + ' player' +
+        (noTeamPlayers.length === 1 ? '' : 's') + ' need team assignment.';
+      alertEl.style.display = 'block';
+    } else {
+      alertEl.style.display = 'none';
     }
   }
 }
@@ -3732,8 +3751,13 @@ function renderRosterTable(opts) {
   if (!opts.showInactive) {
     players = players.filter(p => p.active !== false);
   }
-  // Sort by team then last name for predictability
-  players.sort((a, b) => (a.team || '').localeCompare(b.team || '') || a.last.localeCompare(b.last));
+  // Sort: unassigned-team players first (admin needs to assign them), then by team + last name
+  players.sort((a, b) => {
+    const aNoTeam = !a.team;
+    const bNoTeam = !b.team;
+    if (aNoTeam !== bNoTeam) return aNoTeam ? -1 : 1;
+    return (a.team || '').localeCompare(b.team || '') || a.last.localeCompare(b.last);
+  });
 
   // For the coach roster, the container is a div (not a tbody) — so we render a full table
   if (opts.role === 'coach') {
@@ -4767,6 +4791,11 @@ function openAddChildModal() {
   document.getElementById('ch-first').disabled = false;
   document.getElementById('ch-last').disabled = false;
   document.getElementById('ch-waiver').disabled = false;
+  // Parents don't pick teams — admin/coach assigns after registration.
+  // Hide the team form-group entirely on the add path.
+  document.getElementById('ch-team').disabled = true;
+  const addTeamGroup = document.getElementById('ch-team').closest('.form-group');
+  if (addTeamGroup) addTeamGroup.style.display = 'none';
   openModal('child-modal');
 }
 function openEditChildModal(id) {
@@ -4780,27 +4809,29 @@ function openEditChildModal(id) {
   document.getElementById('ch-grad').value  = p.grad  || '';
   document.getElementById('ch-jersey').value = p.jersey || '';
   document.getElementById('ch-waiver').checked = p.waiver || false;
-  // Existing players: parent can only change team/grad/jersey
+  // Existing players: parent can only change grad/jersey. Team is read-only —
+  // admin/coach manages team assignment.
   document.getElementById('ch-first').disabled = true;
   document.getElementById('ch-last').disabled = true;
+  document.getElementById('ch-team').disabled = true;
   document.getElementById('ch-waiver').disabled = true;
+  // Team form-group is visible on edit (so parent can see the current team)
+  const editTeamGroup = document.getElementById('ch-team').closest('.form-group');
+  if (editTeamGroup) editTeamGroup.style.display = '';
   openModal('child-modal');
 }
 async function saveChild() {
   const first = document.getElementById('ch-first').value.trim();
   const last  = document.getElementById('ch-last').value.trim();
-  const team  = document.getElementById('ch-team').value;
   const grad  = document.getElementById('ch-grad').value.trim();
   const jersey = document.getElementById('ch-jersey').value.trim();
   const waiver = document.getElementById('ch-waiver').checked;
 
   if (!first || !last) { alert('First and last name are required.'); return; }
-  if (!team) { alert('Please select a team.'); return; }
 
   if (editingChildId) {
-    // EDIT: only team/grad/jersey are mutable. Name/waiver stay as they were.
+    // EDIT: only grad/jersey are mutable. Team is admin/coach-managed.
     const row = {
-      team: team || null,
       grad_year: grad || null,
       jersey: jersey || null
     };
@@ -4822,7 +4853,7 @@ async function saveChild() {
     const row = {
       first: first,
       last: last,
-      team: team || null,
+      team: null,                                 // parents don't pick teams
       grad_year: grad || null,
       jersey: jersey || null,
       waiver_signed: true,
