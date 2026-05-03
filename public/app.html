@@ -4630,15 +4630,32 @@ function renderCoachSchedule() {
     p.coachIds && p.coachIds.includes(coach.id) && !isPast(p.date)
   );
 
-  // Tournaments don't have container-level coach assignment after the
-  // schema redesign. Per-game coach assignment comes from tournament_games
-  // (next commit). For now, coach sees no tournaments here until games CRUD ships.
-  const myTournaments = [];
+  // Tournament games for teams where this coach is assigned (via tournament_teams.coach_ids)
+  const myCoachedTeamIds = new Set(
+    state.tournamentTeams
+      .filter(team => (team.coachIds || []).includes(coach.id))
+      .map(team => team.id)
+  );
+
+  const myGames = state.tournamentGames
+    .filter(g => myCoachedTeamIds.has(g.tournamentTeamId) && !isPast(g.date))
+    .map(g => {
+      const team = state.tournamentTeams.find(t => t.id === g.tournamentTeamId);
+      const tournament = team ? state.tournaments.find(t => t.id === team.tournamentId) : null;
+      return {
+        ...g,
+        teamName: team ? team.name : '?',
+        tournamentName: tournament ? tournament.name : 'Tournament'
+      };
+    });
 
   const all = [
-    ...myPractices.map(p => ({ ...p, _type: 'practice', _date: p.date })),
-    ...myTournaments.map(t => ({ ...t, _type: 'tournament', _date: t.startDate }))
-  ].sort((a, b) => a._date.localeCompare(b._date));
+    ...myPractices.map(p => ({ ...p, _type: 'practice', _date: p.date, _start: p.start })),
+    ...myGames.map(g => ({ ...g, _type: 'game', _date: g.date, _start: g.start }))
+  ].sort((a, b) =>
+    a._date.localeCompare(b._date) ||
+    (a._start || '').localeCompare(b._start || '')
+  );
 
   if (!all.length) {
     container.innerHTML = '<div class="panel"><div class="empty"><div class="empty-icon">📅</div><div class="empty-text">No upcoming sessions assigned to you</div></div></div>';
@@ -4653,16 +4670,29 @@ function renderCoachSchedule() {
           <thead><tr><th>Date</th><th>Session</th><th>Teams</th><th>Location</th></tr></thead>
           <tbody>
             ${all.map(item => {
-              const label = item._type === 'practice'
-                ? `${fmtDate(item.date)} ${fmtTime(item.start)}–${fmtTime(item.end)}`
-                : `${fmtDate(item.startDate)}${item.startDate!==item.endDate?' – '+fmtDate(item.endDate):''}`;
-              const name = item._type === 'tournament' ? `🏆 ${item.name}` : '📅 Practice';
-              const teams = (item.groups || []).join(', ') || '—';
+              const isPractice = item._type === 'practice';
+              const timeStr = item._start
+                ? fmtTime(item._start) + (item.end ? '–' + fmtTime(item.end) : '')
+                : '';
+              const dateLabel = `${fmtDate(item._date)}${timeStr ? ' ' + timeStr : ''}`;
+
+              let sessionLabel;
+              let teamsCell;
+              if (isPractice) {
+                sessionLabel = '📅 Practice';
+                teamsCell = (item.groups || []).join(', ') || '—';
+              } else {
+                const opponentStr = item.opponent ? ' vs ' + item.opponent : '';
+                sessionLabel = `🏆 ${item.tournamentName}${opponentStr}`;
+                teamsCell = item.teamName;
+              }
+
               const loc = item.location || '—';
+
               return `<tr>
-                <td style="white-space:nowrap;">${label}</td>
-                <td>${name}</td>
-                <td>${teams}</td>
+                <td style="white-space:nowrap;">${dateLabel}</td>
+                <td>${sessionLabel}</td>
+                <td>${teamsCell}</td>
                 <td>${loc}</td>
               </tr>`;
             }).join('')}
