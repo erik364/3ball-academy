@@ -1466,10 +1466,7 @@ body:not([data-role="admin"]) .btn.admin-only {
         <div class="form-group"><label class="form-label">Last Name</label><input class="form-input" id="cm-last" placeholder="Last"></div>
       </div>
       <div class="form-group"><label class="form-label">Email</label><input class="form-input" id="cm-email" type="email" placeholder="coach@3ball.org"></div>
-      <div class="form-row">
-        <div class="form-group"><label class="form-label">Password</label><input class="form-input" id="cm-pass" type="password" placeholder="Temporary password"></div>
-        <div class="form-group"><label class="form-label">Phone</label><input class="form-input" id="cm-phone" placeholder="(805) 555-0200"></div>
-      </div>
+      <div class="form-group"><label class="form-label">Phone</label><input class="form-input" id="cm-phone" placeholder="(805) 555-0200"></div>
       <div class="form-group">
         <label class="form-label">Assigned Teams</label>
         <div id="cm-teams" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;">
@@ -1483,7 +1480,7 @@ body:not([data-role="admin"]) .btn.admin-only {
     </div>
     <div class="modal-footer">
       <button class="btn" onclick="closeModal('coach-modal')">Cancel</button>
-      <button class="btn btn-primary" onclick="saveCoach()">Save Coach</button>
+      <button class="btn btn-primary" id="coach-modal-save-btn" onclick="saveCoach()">Save Coach</button>
     </div>
   </div>
 </div>
@@ -5059,11 +5056,15 @@ let editingCoachId = null;
 function openCoachModal(id) {
   editingCoachId = id || null;
   const c = id ? state.coaches.find(x=>x.id===id) : null;
-  document.getElementById('coach-modal-title').textContent = id ? 'Edit Coach' : 'Add Coach';
+  document.getElementById('coach-modal-title').textContent = id ? 'Edit Coach' : 'Invite Coach';
+  const saveBtn = document.getElementById('coach-modal-save-btn');
+  if (saveBtn) {
+    saveBtn.textContent = id ? 'Save Coach' : 'Send Invite';
+    saveBtn.disabled = false;
+  }
   document.getElementById('cm-first').value = c?.first || '';
   document.getElementById('cm-last').value  = c?.last  || '';
   document.getElementById('cm-email').value = c?.email || '';
-  document.getElementById('cm-pass').value  = '';
   document.getElementById('cm-phone').value = c?.phone || '';
   document.getElementById('cm-admin').checked = c?.isAdmin || false;
   // Render team checkboxes
@@ -5075,10 +5076,6 @@ function openCoachModal(id) {
 }
 
 async function saveCoach() {
-  if (!editingCoachId) {
-    toast('To add a new coach, create their auth user in Supabase first');
-    return;
-  }
   const first = document.getElementById('cm-first').value.trim();
   const last  = document.getElementById('cm-last').value.trim();
   const email = document.getElementById('cm-email').value.trim();
@@ -5089,23 +5086,125 @@ async function saveCoach() {
   if (!first || !last || !email) { toast('Name and email are required'); return; }
   if (!sb) { toast('Auth not configured'); return; }
 
-  const { error } = await sb.from('coaches')
-    .update({
-      first: first, last: last, email: email, phone: phone || null,
-      is_admin: isAdmin, teams: teams
-    })
-    .eq('id', editingCoachId);
-
-  if (error) {
-    console.error('saveCoach error:', error);
-    toast(error.code === '42501' ? 'Only admins can edit coaches' : 'Failed: ' + error.message);
-    return;
+  // Confirm admin promotion on invite (extra friction for a sensitive action)
+  if (isAdmin && !editingCoachId) {
+    if (!confirm('Invite ' + first + ' ' + last + ' as an ADMIN coach?\n\nAdmin coaches have full access including roster management, approvals, and tournament setup.')) {
+      return;
+    }
   }
 
-  await loadCoaches();
-  closeModal('coach-modal');
-  renderCoachManagement();
-  toast('Coach saved!');
+  const saveBtn = document.getElementById('coach-modal-save-btn');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = editingCoachId ? 'Saving...' : 'Sending invite...'; }
+
+  try {
+    if (editingCoachId) {
+      // EDIT PATH — same as before
+      const { error } = await sb.from('coaches')
+        .update({
+          first: first, last: last, email: email, phone: phone || null,
+          is_admin: isAdmin, teams: teams
+        })
+        .eq('id', editingCoachId);
+
+      if (error) {
+        console.error('saveCoach update error:', error);
+        toast(error.code === '42501' ? 'Only admins can edit coaches' : 'Failed: ' + error.message);
+        return;
+      }
+
+      await loadCoaches();
+      closeModal('coach-modal');
+      renderCoachManagement();
+      toast('Coach saved!');
+    } else {
+      // INVITE PATH — sign up auth user with random throwaway password,
+      // insert coaches row, then send password reset email so the coach can
+      // set their own password.
+
+      // 1. Generate a random throwaway password (coach never uses this — they'll reset it)
+      const randomPassword = 'tmp-' + crypto.randomUUID() + '-' + Date.now();
+
+      // 2. Sign up the auth user with role metadata
+      const role = isAdmin ? 'admin' : 'coach';
+      const { data: signUpData, error: signUpError } = await sb.auth.signUp({
+        email: email,
+        password: randomPassword,
+        options: {
+          data: { role: role, first: first, last: last, phone: phone }
+        }
+      });
+
+      if (signUpError) {
+        console.error('coach signUp error:', signUpError);
+        if (signUpError.message && signUpError.message.toLowerCase().includes('already')) {
+          toast('A user with that email already exists.');
+        } else {
+          toast('Could not create account: ' + signUpError.message);
+        }
+        return;
+      }
+
+      if (!signUpData || !signUpData.user) {
+        toast('Account creation failed unexpectedly.');
+        return;
+      }
+
+      const newCoachId = signUpData.user.id;
+
+      // 3. Insert the coaches row using the same id as the auth user
+      const { error: insertError } = await sb.from('coaches').insert({
+        id: newCoachId,
+        first: first,
+        last: last,
+        email: email,
+        phone: phone || null,
+        is_admin: isAdmin,
+        teams: teams
+      });
+
+      if (insertError) {
+        console.error('coach insert error:', insertError);
+        // Auth user was created but coach row failed. Admin needs to either
+        // manually create the coaches row or delete the auth user.
+        toast('Auth created but coach row failed: ' + insertError.message + '. Contact support.');
+        return;
+      }
+
+      // 4. Send password reset email so coach can set their own password.
+      // Redirect URL needs to point back to this app so they land here after reset.
+      const redirectTo = window.parent
+        ? window.parent.location.origin + window.parent.location.pathname
+        : window.location.origin + window.location.pathname;
+
+      const { error: resetError } = await sb.auth.resetPasswordForEmail(email, { redirectTo: redirectTo });
+
+      if (resetError) {
+        console.error('coach reset email error:', resetError);
+        toast('Coach created but invite email failed. Resend from Supabase dashboard.');
+      } else {
+        toast('Invite sent to ' + email);
+      }
+
+      await loadCoaches();
+      closeModal('coach-modal');
+      renderCoachManagement();
+
+      // KNOWN LIMITATION: signUp replaces the admin's auth session with the new
+      // coach's session (Supabase quirk). Force a sign-out + reload so admin
+      // doesn't get stuck operating as the new coach. The proper fix is a
+      // server-side edge function using the admin API (deferred Option B).
+      setTimeout(function() {
+        if (confirm('Invite sent! Note: Supabase signed you out as part of the invite. Click OK to sign back in.')) {
+          sb.auth.signOut().then(function() { location.reload(); });
+        }
+      }, 500);
+    }
+  } catch (e) {
+    console.error('saveCoach threw:', e);
+    toast('Save failed: ' + e.message);
+  } finally {
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = editingCoachId ? 'Save Coach' : 'Send Invite'; }
+  }
 }
 
 async function removeCoach(id) {
