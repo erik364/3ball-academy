@@ -1623,6 +1623,48 @@ body:not([data-role="admin"]) .btn.admin-only {
   </div>
 </div>
 
+<!-- Tournament Game Modal -->
+<div class="modal-overlay" id="game-modal">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-header">
+      <span class="modal-title" id="game-modal-title">Add Game</span>
+      <button class="modal-close" onclick="closeModal('game-modal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Date *</label>
+        <input class="form-input" type="date" id="gm-date" required>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Start Time *</label>
+          <input class="form-input" type="time" id="gm-start" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">End Time</label>
+          <input class="form-input" type="time" id="gm-end" placeholder="Optional">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Location</label>
+        <input class="form-input" id="gm-location" placeholder="e.g., Main Court, Vegas, TBD">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Opponent</label>
+        <input class="form-input" id="gm-opponent" placeholder="Optional">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Notes</label>
+        <textarea class="form-input" id="gm-notes" rows="2" placeholder="Court #, jersey color, anything else…"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('game-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveGame()">Save</button>
+    </div>
+  </div>
+</div>
+
 <!-- Player Modal -->
 <!-- Location Modal -->
 <div class="modal-overlay" id="location-modal">
@@ -1663,6 +1705,7 @@ let state = {
   currentParent: null,
   currentCoach: null,
   viewingTournamentId: null,
+  editingGameTeamId: null,
   coaches: [],
   waiver: `3Ball Academy Workout Waiver & Health Acknowledgment\n\nI understand that participation in 3Ball Academy workouts, practices, clinics, and tournaments involves physical activity and carries inherent risks of injury. I voluntarily assume all risks associated with participation.\n\nI confirm that the participant is in good physical health and has no known medical conditions that would prevent safe participation. I agree to notify 3Ball Academy coaches immediately of any injury, illness, or change in health status.\n\nI grant 3Ball Academy permission to seek emergency medical treatment if necessary. I understand that 3Ball Academy, its coaches, and volunteers are not responsible for injury, illness, loss of equipment, or other damages arising from participation.\n\nI agree that the participant will follow all 3Ball Academy rules, team standards, and coach instructions.\n\nThis waiver is valid for the current 3Ball Academy season. By checking the box below, I confirm I have read, understood, and agree to these terms.`
 };
@@ -2957,8 +3000,12 @@ function renderTournamentDetail() {
           <div style="border-top:1px solid var(--gray-border);padding-top:10px;">
             ${rosterHtml}
           </div>
-          <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--gray-border);font-size:12px;color:var(--text-secondary);font-style:italic;">
-            🎮 Games for this team — coming next
+          <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--gray-border);">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+              <div style="font-size:13px;font-weight:600;">🏀 Games</div>
+              <button class="btn btn-sm btn-primary" onclick="openGameModal(null, '${tm.id}')">+ Add Game</button>
+            </div>
+            ${renderTeamGamesHtml(tm.id)}
           </div>
         </div>
       </div>`;
@@ -3122,6 +3169,131 @@ async function deleteTeam(id) {
     toast('Team deleted.');
   } catch (e) {
     console.error('deleteTeam error:', e);
+    alert('Delete failed: ' + e.message);
+  }
+}
+
+// ===== TOURNAMENT GAMES CRUD =====
+function renderTeamGamesHtml(teamId) {
+  const games = state.tournamentGames
+    .filter(g => g.tournamentTeamId === teamId)
+    .sort((a, b) => {
+      if (a.date !== b.date) return a.date.localeCompare(b.date);
+      return (a.start || '').localeCompare(b.start || '');
+    });
+
+  if (!games.length) {
+    return `<div style="font-size:12px;color:var(--text-secondary);font-style:italic;padding:6px 0;">No games scheduled yet.</div>`;
+  }
+
+  return games.map(g => {
+    const timeStr = g.start
+      ? fmtTime(g.start) + (g.end ? '–' + fmtTime(g.end) : '')
+      : 'TBD';
+    const opponent = g.opponent ? ' vs ' + g.opponent : '';
+    const location = g.location ? ' · 📍 ' + g.location : '';
+
+    return `
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--gray-bg);border-radius:6px;margin-bottom:6px;">
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:13px;font-weight:500;">
+            ${fmtDate(g.date)} · ${timeStr}${opponent}
+          </div>
+          ${(location || g.notes) ? `<div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">
+            ${location.replace(/^ · /, '')}${g.notes ? (location ? ' · ' : '') + g.notes : ''}
+          </div>` : ''}
+        </div>
+        <div style="display:flex;gap:4px;flex-shrink:0;">
+          <button class="btn btn-sm" onclick="editGame('${g.id}')" style="padding:3px 8px;font-size:11px;">Edit</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteGame('${g.id}')" style="padding:3px 8px;font-size:11px;">Delete</button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function openGameModal(gameId, teamId) {
+  state.editingId = gameId || null;
+  state.editingGameTeamId = teamId || null;
+  const g = gameId ? state.tournamentGames.find(x => x.id === gameId) : null;
+
+  document.getElementById('game-modal-title').textContent = g ? 'Edit Game' : 'Add Game';
+  document.getElementById('gm-date').value = g ? g.date : '';
+  document.getElementById('gm-start').value = g ? g.start : '';
+  document.getElementById('gm-end').value = g ? (g.end || '') : '';
+  document.getElementById('gm-location').value = g ? g.location : '';
+  document.getElementById('gm-opponent').value = g ? g.opponent : '';
+  document.getElementById('gm-notes').value = g ? g.notes : '';
+
+  openModal('game-modal');
+}
+
+function editGame(id) {
+  const g = state.tournamentGames.find(x => x.id === id);
+  if (!g) return;
+  openGameModal(id, g.tournamentTeamId);
+}
+
+async function saveGame() {
+  const date = document.getElementById('gm-date').value;
+  const start = document.getElementById('gm-start').value;
+  const end = document.getElementById('gm-end').value;
+  const location = document.getElementById('gm-location').value.trim();
+  const opponent = document.getElementById('gm-opponent').value.trim();
+  const notes = document.getElementById('gm-notes').value.trim();
+
+  if (!date) { alert('Date is required.'); return; }
+  if (!start) { alert('Start time is required.'); return; }
+  if (!state.editingId && !state.editingGameTeamId) {
+    alert('No team context — refresh the page.');
+    return;
+  }
+
+  const row = {
+    date: date,
+    start_time: start,
+    end_time: end || null,
+    location_text: location || null,
+    opponent: opponent || null,
+    notes: notes || null
+  };
+
+  // Only set tournament_team_id on insert (don't allow moving games between teams via edit)
+  if (!state.editingId) {
+    row.tournament_team_id = state.editingGameTeamId;
+  }
+
+  try {
+    if (state.editingId) {
+      const { error } = await sb.from('tournament_games').update(row).eq('id', state.editingId);
+      if (error) { console.error(error); alert('Save failed: ' + error.message); return; }
+      toast('Game updated!');
+    } else {
+      const { error } = await sb.from('tournament_games').insert(row);
+      if (error) { console.error(error); alert('Save failed: ' + error.message); return; }
+      toast('Game added!');
+    }
+    await loadTournamentGames();
+    closeModal('game-modal');
+    renderTournamentDetail();
+  } catch (e) {
+    console.error('saveGame error:', e);
+    alert('Save failed: ' + e.message);
+  }
+}
+
+async function deleteGame(id) {
+  const g = state.tournamentGames.find(x => x.id === id);
+  if (!g) return;
+  const dateStr = fmtDate(g.date);
+  if (!confirm(`Delete this game on ${dateStr}?`)) return;
+  try {
+    const { error } = await sb.from('tournament_games').delete().eq('id', id);
+    if (error) { console.error(error); alert('Delete failed: ' + error.message); return; }
+    await loadTournamentGames();
+    renderTournamentDetail();
+    toast('Game deleted.');
+  } catch (e) {
+    console.error('deleteGame error:', e);
     alert('Delete failed: ' + e.message);
   }
 }
