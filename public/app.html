@@ -1605,6 +1605,14 @@ body:not([data-role="admin"]) .btn.admin-only {
 
       <div class="form-group">
         <label class="form-label">Players (grouped by practice team)</label>
+        <input
+          type="text"
+          id="tm-player-search"
+          class="form-input"
+          placeholder="Search by name…"
+          oninput="filterTeamModalPlayers()"
+          style="margin-bottom:8px;"
+          autocomplete="off">
         <div id="tm-players" style="max-height:340px;overflow-y:auto;padding:8px;background:var(--gray-bg);border-radius:6px;"></div>
       </div>
     </div>
@@ -2993,43 +3001,75 @@ function openTeamModal(teamId) {
     }).join('');
   }
 
-  // Render players grouped by practice team
-  const playerContainer = document.getElementById('tm-players');
-  const activePlayers = state.players.filter(p => p.active !== false);
-  if (!activePlayers.length) {
-    playerContainer.innerHTML = '<span style="font-size:13px;color:var(--text-secondary);">No active players</span>';
-  } else {
-    const byTeam = {};
-    activePlayers.forEach(p => {
-      const team = p.team || '—';
-      if (!byTeam[team]) byTeam[team] = [];
-      byTeam[team].push(p);
-    });
-    const TEAM_ORDER = ['T','C','B','G','O','3BHS','3BGals'];
-    const sortedKeys = TEAM_ORDER.filter(k => byTeam[k]).concat(
-      Object.keys(byTeam).filter(k => !TEAM_ORDER.includes(k))
-    );
-    const editingPlayerIds = tm ? (tm.playerIds || []) : [];
-
-    playerContainer.innerHTML = sortedKeys.map(team => {
-      const players = byTeam[team].sort((a, b) => (a.last + a.first).localeCompare(b.last + b.first));
-      return `
-        <div style="margin-bottom:12px;">
-          <div style="font-size:11px;font-weight:700;color:var(--orange-mid);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;padding-bottom:3px;border-bottom:1px solid var(--orange-light);">
-            ${team}
-          </div>
-          ${players.map(p => {
-            const checked = editingPlayerIds.includes(p.id);
-            return `<label style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:#fff;border-radius:4px;margin-bottom:3px;cursor:pointer;font-size:13px;">
-              <input type="checkbox" value="${p.id}" ${checked ? 'checked' : ''}>
-              ${p.first} ${p.last}${p.grad ? ' · ' + p.grad : ''}
-            </label>`;
-          }).join('')}
-        </div>`;
-    }).join('');
-  }
+  // Reset the search input each time the modal opens
+  document.getElementById('tm-player-search').value = '';
+  // Render the player list (will re-render on search input)
+  renderTeamModalPlayers(tm ? (tm.playerIds || []) : []);
 
   openModal('team-modal');
+}
+
+function renderTeamModalPlayers(selectedIds) {
+  const playerContainer = document.getElementById('tm-players');
+  const searchVal = (document.getElementById('tm-player-search').value || '').trim().toLowerCase();
+  const activePlayers = state.players.filter(p => p.active !== false);
+
+  if (!activePlayers.length) {
+    playerContainer.innerHTML = '<span style="font-size:13px;color:var(--text-secondary);">No active players</span>';
+    return;
+  }
+
+  // Apply search filter
+  const filtered = searchVal
+    ? activePlayers.filter(p =>
+        (p.first || '').toLowerCase().includes(searchVal) ||
+        (p.last || '').toLowerCase().includes(searchVal)
+      )
+    : activePlayers;
+
+  if (!filtered.length) {
+    playerContainer.innerHTML = '<span style="font-size:13px;color:var(--text-secondary);font-style:italic;">No players match "' + searchVal + '"</span>';
+    return;
+  }
+
+  // Group by practice team
+  const byTeam = {};
+  filtered.forEach(p => {
+    const t = p.team || '—';
+    if (!byTeam[t]) byTeam[t] = [];
+    byTeam[t].push(p);
+  });
+  const TEAM_ORDER = ['T','C','B','G','O','3BHS','3BGals'];
+  const sortedKeys = TEAM_ORDER.filter(k => byTeam[k]).concat(
+    Object.keys(byTeam).filter(k => !TEAM_ORDER.includes(k))
+  );
+
+  playerContainer.innerHTML = sortedKeys.map(team => {
+    const players = byTeam[team].sort((a, b) =>
+      (a.last + a.first).localeCompare(b.last + b.first)
+    );
+    return `
+      <div style="margin-bottom:12px;">
+        <div style="font-size:11px;font-weight:700;color:var(--orange-mid);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;padding-bottom:3px;border-bottom:1px solid var(--orange-light);">
+          ${team}
+        </div>
+        ${players.map(p => {
+          const checked = selectedIds.includes(p.id);
+          return `<label style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:#fff;border-radius:4px;margin-bottom:3px;cursor:pointer;font-size:13px;">
+            <input type="checkbox" value="${p.id}" ${checked ? 'checked' : ''}>
+            ${p.first} ${p.last}${p.grad ? ' · ' + p.grad : ''}
+          </label>`;
+        }).join('')}
+      </div>`;
+  }).join('');
+}
+
+function filterTeamModalPlayers() {
+  // Capture currently-checked player IDs from the live DOM before re-rendering
+  const currentlyChecked = Array.from(
+    document.querySelectorAll('#tm-players input:checked')
+  ).map(cb => cb.value);
+  renderTeamModalPlayers(currentlyChecked);
 }
 
 function editTeam(id) { openTeamModal(id); }
