@@ -4116,24 +4116,90 @@ function filterPlayerSched(f, el) {
 
 function renderPlayerScheduleFilter(filter) {
   const p = state.currentUser;
-  let items = [
-    ...state.practices.filter(pr=>pr.groups.includes(p.team)).map(pr=>({...pr,_type:'practice'})),
-    ...state.tournaments.filter(t=>t.groups.includes(p.team)||!t.groups.length).map(t=>({...t,date:t.startDate,_type:'tournament'}))
-  ].sort((a,b)=>a.date.localeCompare(b.date));
-  if (filter==='upcoming') items = items.filter(i=>i.date>=today());
-  if (filter==='past') items = items.filter(i=>i.date<today());
-
   const tb = document.getElementById('player-schedule-table');
   if (!tb) return;
-  if (!items.length) { tb.innerHTML = `<tr><td colspan="4"><div class="empty"><div class="empty-icon">📅</div><div class="empty-text">No sessions found</div></div></td></tr>`; return; }
+
+  if (!p || !p.id) {
+    tb.innerHTML = '<tr><td colspan="4"><div class="empty"><div class="empty-icon">📅</div><div class="empty-text">No player selected</div></div></td></tr>';
+    return;
+  }
+
+  // Practices: filter to selected kid's practice team
+  const practiceItems = state.practices
+    .filter(pr => p.team && (pr.groups || []).includes(p.team))
+    .map(pr => ({
+      _type: 'practice',
+      _date: pr.date,
+      _start: pr.start,
+      _end: pr.end,
+      id: pr.id,
+      location: pr.location || '',
+      groups: pr.groups || []
+    }));
+
+  // Tournament games: filter to games where this kid is on the team's roster
+  const gameItems = state.tournamentGames
+    .map(g => {
+      const team = state.tournamentTeams.find(t => t.id === g.tournamentTeamId);
+      if (!team || !(team.playerIds || []).includes(p.id)) return null;
+      const tournament = state.tournaments.find(t => t.id === team.tournamentId);
+      return {
+        _type: 'game',
+        _date: g.date,
+        _start: g.start,
+        _end: g.end,
+        id: g.id,
+        location: g.location || '',
+        opponent: g.opponent || '',
+        teamName: team.name,
+        tournamentName: tournament ? tournament.name : 'Tournament'
+      };
+    })
+    .filter(Boolean);
+
+  let items = [...practiceItems, ...gameItems]
+    .sort((a, b) =>
+      a._date.localeCompare(b._date) ||
+      (a._start || '').localeCompare(b._start || '')
+    );
+
+  if (filter === 'upcoming') items = items.filter(i => i._date >= today());
+  if (filter === 'past') items = items.filter(i => i._date < today());
+
+  if (!items.length) {
+    tb.innerHTML = '<tr><td colspan="4"><div class="empty"><div class="empty-icon">📅</div><div class="empty-text">No sessions found</div></div></td></tr>';
+    return;
+  }
+
   tb.innerHTML = items.map(item => {
     const isPractice = item._type === 'practice';
-    const rsvpVal = (item.rsvp||{})[p.id];
+    const past = item._date < today();
+
+    // Read RSVP value from the appropriate table
+    let rsvpVal;
+    if (isPractice) {
+      const pr = state.practices.find(x => x.id === item.id);
+      rsvpVal = pr && pr.rsvp ? pr.rsvp[p.id] : null;
+    } else {
+      const gRsvp = state.tournamentGameRsvps.find(r => r.gameId === item.id && r.playerId === p.id);
+      rsvpVal = gRsvp ? gRsvp.answer : null;
+    }
     const isAttending = rsvpVal === 'yes';
     const isDeclined = rsvpVal === 'no';
-    const past = isPast(item.date);
-    const timeStr = isPractice ? `${fmtTime(item.start)}–${fmtTime(item.end)}` : (item.startDate!==item.endDate ? fmtDate(item.startDate)+' – '+fmtDate(item.endDate) : '');
-    const typeTag = isPractice ? '<span class="pill pill-blue">Practice</span>' : '<span class="pill pill-orange">Tournament</span>';
+
+    const timeStr = item._start
+      ? fmtTime(item._start) + (item._end ? '–' + fmtTime(item._end) : '')
+      : '';
+
+    const typeTag = isPractice
+      ? '<span class="pill pill-blue">Practice</span>'
+      : '<span class="pill pill-orange">Game</span>';
+
+    const typeCell = isPractice
+      ? typeTag
+      : `${typeTag}<div style="font-size:11px;color:var(--text-secondary);margin-top:3px;">${item.teamName} · 🏆 ${item.tournamentName}${item.opponent ? ' vs ' + item.opponent : ''}</div>`;
+
+    const locCell = item.location || '—';
 
     const statusLabel = rsvpVal === 'yes'
       ? '<div style="font-size:10px;color:var(--teal-dark);font-weight:600;margin-top:4px;">✓ Saved</div>'
@@ -4143,7 +4209,6 @@ function renderPlayerScheduleFilter(filter) {
 
     let attendingCell;
     if (past) {
-      // Past events: show saved status only, no editable buttons
       if (rsvpVal === 'yes') {
         attendingCell = '<span class="pill pill-green">Going ✓</span><div style="font-size:9px;color:var(--text-secondary);font-style:italic;margin-top:3px;">past event</div>';
       } else if (rsvpVal === 'no') {
@@ -4152,14 +4217,21 @@ function renderPlayerScheduleFilter(filter) {
         attendingCell = '<span class="pill pill-gray">No response</span><div style="font-size:9px;color:var(--text-secondary);font-style:italic;margin-top:3px;">past event</div>';
       }
     } else {
+      const yesHandler = isPractice
+        ? `setRsvp('${item.id}','practice','yes')`
+        : `setGameRsvp('${item.id}','${p.id}','yes')`;
+      const noHandler = isPractice
+        ? `setRsvp('${item.id}','practice','no')`
+        : `setGameRsvp('${item.id}','${p.id}','no')`;
+
       attendingCell = `
         <div style="display:flex;flex-direction:column;align-items:flex-start;gap:2px;">
           <div style="display:flex;gap:5px;">
-            <button class="btn btn-sm" onclick="setRsvp('${item.id}','${item._type}','yes')"
+            <button class="btn btn-sm" onclick="${yesHandler}"
               style="background:${isAttending?'var(--teal)':'transparent'};color:${isAttending?'#fff':'var(--teal-dark)'};border-color:${isAttending?'var(--teal)':'#9FE1CB'};font-weight:${isAttending?'600':'500'};">
               ✓ Yes
             </button>
-            <button class="btn btn-sm" onclick="setRsvp('${item.id}','${item._type}','no')"
+            <button class="btn btn-sm" onclick="${noHandler}"
               style="background:${isDeclined?'#E24B4A':'transparent'};color:${isDeclined?'#fff':'#A32D2D'};border-color:${isDeclined?'#E24B4A':'#F7C1C1'};font-weight:${isDeclined?'600':'500'};">
               ✗ No
             </button>
@@ -4168,10 +4240,10 @@ function renderPlayerScheduleFilter(filter) {
         </div>`;
     }
 
-    return `<tr style="cursor:pointer;" onclick="if(!event.target.closest('button'))showSessionRoster('${item.id}','${item._type}')">
-      <td><div style="font-weight:500;">${fmtDate(item.date)}</div><div style="font-size:11px;color:var(--text-secondary);">${timeStr}</div></td>
-      <td>${typeTag}</td>
-      <td>${item.location||item.name||'—'}</td>
+    return `<tr>
+      <td><div style="font-weight:500;">${fmtDate(item._date)}</div><div style="font-size:11px;color:var(--text-secondary);">${timeStr}</div></td>
+      <td>${typeCell}</td>
+      <td>${locCell}</td>
       <td>${attendingCell}</td>
     </tr>`;
   }).join('');
@@ -4601,12 +4673,20 @@ async function setGameRsvp(gameId, playerId, answer) {
     }
     await loadTournamentGameRsvps();
     renderPlayerTournaments();
+    // Also refresh schedule if it's the active page
+    if (typeof renderPlayerScheduleFilter === 'function') {
+      renderPlayerScheduleFilter(currentSchedFilter);
+    }
     toast(answer === 'yes' ? 'Game RSVP: Yes' : 'Game RSVP: No');
   } catch (e) {
     console.error('setGameRsvp error:', e);
     alert('Could not save game RSVP: ' + (e.message || 'unknown error'));
     await loadTournamentGameRsvps();
     renderPlayerTournaments();
+    // Also refresh schedule if it's the active page
+    if (typeof renderPlayerScheduleFilter === 'function') {
+      renderPlayerScheduleFilter(currentSchedFilter);
+    }
   }
 }
 
