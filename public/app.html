@@ -4023,33 +4023,68 @@ function renderCalendar(containerId, mode) {
   const firstDay = new Date(viewYear, viewMonth, 1).getDay();
   const daysInMonth = new Date(viewYear, viewMonth+1, 0).getDate();
   const allEvents = [];
+
+  // ---- PRACTICES ----
   state.practices.forEach(pr => {
     const d = new Date(pr.date+'T00:00:00');
-    if (d.getFullYear()===viewYear && d.getMonth()===viewMonth) {
-      let ok = false;
-      if (isAdmin) ok = true;
-      else if (isCoachTeams) ok = pr.groups.some(g => coachTeams.includes(g));
-      else if (isPlayer) ok = state.currentUser && pr.groups.includes(state.currentUser.team);
-      if (ok) allEvents.push({
-        id: pr.id, date: pr.date, day: d.getDate(),
-        label: fmtTime(pr.start) + ' ' + pr.groups.join(',') + ' @ ' + pr.location,
-        shortLabel: fmtTime(pr.start) + ' @ ' + pr.location,
-        type: 'practice'
-      });
+    if (d.getFullYear() !== viewYear || d.getMonth() !== viewMonth) return;
+
+    let ok = false;
+    if (isAdmin) ok = true;
+    else if (isCoachTeams) ok = true;          // coach sees all practices
+    else if (isPlayer) {
+      // Parent: only show practices for the currently-selected kid's team
+      const kid = state.currentUser; // already the selected player object
+      ok = kid && kid.team && pr.groups && pr.groups.includes(kid.team);
     }
+    if (!ok) return;
+
+    allEvents.push({
+      id: pr.id,
+      date: pr.date,
+      day: d.getDate(),
+      label: fmtTime(pr.start) + ' ' + (pr.groups || []).join(',') + ' @ ' + (pr.location || 'TBD'),
+      shortLabel: fmtTime(pr.start) + ' @ ' + (pr.location || 'TBD'),
+      type: 'practice'
+    });
   });
-  state.tournaments.forEach(t => {
-    const d = new Date(t.startDate+'T00:00:00');
-    if (d.getFullYear()===viewYear && d.getMonth()===viewMonth) {
-      let ok = false;
-      if (isAdmin) ok = true;
-      else if (isCoachTeams) ok = t.groups.some(g => coachTeams.includes(g)) || !t.groups.length;
-      else if (isPlayer) ok = state.currentUser && (t.groups.includes(state.currentUser.team) || !t.groups.length);
-      if (ok) allEvents.push({
-        id: t.id, date: t.startDate, day: d.getDate(),
-        label: t.name, shortLabel: t.name, type: 'tournament'
-      });
+
+  // ---- TOURNAMENT GAMES ----
+  // Tournament containers no longer appear on the calendar.
+  // Each game is a calendar event with its own date/time/location.
+  state.tournamentGames.forEach(g => {
+    const d = new Date(g.date+'T00:00:00');
+    if (d.getFullYear() !== viewYear || d.getMonth() !== viewMonth) return;
+
+    const team = state.tournamentTeams.find(tm => tm.id === g.tournamentTeamId);
+    if (!team) return; // orphan game (team deleted via cascade should prevent this)
+
+    let ok = false;
+    if (isAdmin) ok = true;
+    else if (isCoachTeams) ok = true;          // coach sees all games
+    else if (isPlayer) {
+      // Parent: only show games where the currently-selected kid is on the team's roster
+      const kid = state.currentUser;
+      ok = kid && (team.playerIds || []).includes(kid.id);
     }
+    if (!ok) return;
+
+    const tournament = state.tournaments.find(t => t.id === team.tournamentId);
+    const tournamentName = tournament ? tournament.name : 'Tournament';
+    const timeStr = g.start ? fmtTime(g.start) : 'TBD';
+    const opponentStr = g.opponent ? ' vs ' + g.opponent : '';
+    const locStr = g.location ? ' @ ' + g.location : '';
+
+    allEvents.push({
+      id: g.id,
+      date: g.date,
+      day: d.getDate(),
+      label: timeStr + ' ' + team.name + opponentStr + locStr,
+      shortLabel: timeStr + ' ' + team.name + opponentStr,
+      type: 'game',                  // NEW event type — not 'tournament' anymore
+      gameTeamId: team.id,           // for RSVP context later (Commit D)
+      tournamentName: tournamentName // for tooltips/labels if needed
+    });
   });
   const byDay = {};
   allEvents.forEach(e => { if (!byDay[e.day]) byDay[e.day]=[]; byDay[e.day].push(e); });
@@ -4072,18 +4107,24 @@ function renderCalendar(containerId, mode) {
     const evs = byDay[d]||[];
     let evHtml = '';
     evs.slice(0,3).forEach(e => {
-      const rsvpObj = e.type==='practice'
-        ? ((state.practices.find(p=>p.id===e.id)||{}).rsvp||{})
-        : ((state.tournaments.find(t=>t.id===e.id)||{}).rsvp||{});
+      // Build RSVP lookup based on event type
+      let rsvpObj = {};
+      if (e.type === 'practice') {
+        rsvpObj = (state.practices.find(p => p.id === e.id) || {}).rsvp || {};
+      }
+      // For 'game' type, per-game RSVPs come from a separate table (Commit D).
+      // For now, no RSVP indicator on game events.
       const rsvpd = isPlayer ? rsvpObj[state.currentUser&&state.currentUser.id] : null;
       let indicator = '';
       if (isPlayer) {
         if (rsvpd === 'yes') indicator = ' <span style="color:var(--teal-dark);">●</span>';
         else if (rsvpd === 'no') indicator = ' <span style="color:#A32D2D;">✗</span>';
       }
-      const bg = e.type==='practice' ? 'var(--blue-light)' : 'var(--orange-light)';
-      const col = e.type==='practice' ? 'var(--blue)' : 'var(--orange-mid)';
-      const clickAttr = isPlayer ? ' onclick="openCalEventModal(\''+e.id+'\',\''+e.type+'\')" style="cursor:pointer;' : ' style="';
+      const bg = e.type === 'practice' ? 'var(--blue-light)' : 'var(--orange-light)';
+      const col = e.type === 'practice' ? 'var(--blue)' : 'var(--orange-mid)';
+      const clickAttr = (isPlayer && e.type === 'practice')
+        ? ' onclick="openCalEventModal(\''+e.id+'\',\''+e.type+'\')" style="cursor:pointer;'
+        : ' style="';
       evHtml += '<div'+clickAttr+'font-size:10px;padding:2px 4px;border-radius:3px;margin-bottom:2px;background:'+bg+';color:'+col+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-left:2px solid '+col+';" title="'+e.label+' — tap to answer">'+e.shortLabel+indicator+'</div>';
     });
     if (evs.length>3) evHtml += '<div style="font-size:10px;color:var(--text-secondary);">+'+(evs.length-3)+' more</div>';
@@ -4094,8 +4135,8 @@ function renderCalendar(containerId, mode) {
   }
   const remaining = (firstDay + daysInMonth) % 7;
   if (remaining > 0) { for (let i=0; i<(7-remaining); i++) cells += `<div style="min-height:72px;border-right:0.5px solid var(--gray-border);border-bottom:0.5px solid var(--gray-border);background:var(--gray-bg);"></div>`; }
-  const legendExtra = isPlayer ? '<span style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;"><span style="color:var(--teal-dark);">●</span> Going</span><span style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;"><span style="color:#A32D2D;">✗</span> Not going</span><span style="font-size:12px;color:var(--orange-mid);font-weight:500;margin-left:6px;">💡 Tap any event to RSVP</span>' : '';
-  html += cells + '</div></div><div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:10px;"><span style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;border-radius:2px;display:inline-block;background:var(--blue-light);border:1px solid var(--blue);"></span>Practice</span><span style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;border-radius:2px;display:inline-block;background:var(--orange-light);border:1px solid var(--orange-mid);"></span>Tournament</span>'+legendExtra+'</div>';
+  const legendExtra = isPlayer ? '<span style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;"><span style="color:var(--teal-dark);">●</span> Going</span><span style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;"><span style="color:#A32D2D;">✗</span> Not going</span><span style="font-size:12px;color:var(--orange-mid);font-weight:500;margin-left:6px;">💡 Tap a practice to RSVP</span>' : '';
+  html += cells + '</div></div><div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:10px;"><span style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;border-radius:2px;display:inline-block;background:var(--blue-light);border:1px solid var(--blue);"></span>Practice</span><span style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;border-radius:2px;display:inline-block;background:var(--orange-light);border:1px solid var(--orange-mid);"></span>Game</span>'+legendExtra+'</div>';
   container.innerHTML = html;
 }
 
