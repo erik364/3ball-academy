@@ -1592,6 +1592,7 @@ let state = {
   practices: [],
   tournaments: [],
   tournamentGames: [],
+  tournamentTeams: [],
   parents: [],
   players: [],
   locations: [],
@@ -1986,6 +1987,23 @@ async function loadTournaments() {
   } catch (e) { console.error('loadTournaments threw:', e); }
 }
 
+async function loadTournamentTeams() {
+  if (!sb) return;
+  try {
+    const { data, error } = await sb.from('tournament_teams').select('*').order('name');
+    if (error) { console.error('loadTournamentTeams error:', error); return; }
+    state.tournamentTeams = (data || []).map(function(row) {
+      return {
+        id: row.id,
+        tournamentId: row.tournament_id,
+        name: row.name,
+        playerIds: row.player_ids || [],
+        coachIds: row.coach_ids || []
+      };
+    });
+  } catch (e) { console.error('loadTournamentTeams threw:', e); }
+}
+
 async function loadTournamentGames() {
   if (!sb) return;
   try {
@@ -1994,15 +2012,14 @@ async function loadTournamentGames() {
     state.tournamentGames = (data || []).map(function(row) {
       return {
         id: row.id,
-        tournamentId: row.tournament_id,
+        tournamentTeamId: row.tournament_team_id,
         date: row.date,
         start: row.start_time ? row.start_time.slice(0,5) : '',
         end: row.end_time ? row.end_time.slice(0,5) : '',
         location: row.location_text || '',
         opponent: row.opponent || '',
-        notes: row.notes || '',
-        groups: row.groups || [],
-        coachIds: row.coach_ids || []
+        notes: row.notes || ''
+        // groups and coachIds removed — they live on tournament_teams now
       };
     });
   } catch (e) { console.error('loadTournamentGames threw:', e); }
@@ -2055,7 +2072,7 @@ async function loadPracticeCheckins() {
 
 // Convenience wrapper: load practices/tournaments + their child rows in the right order
 async function loadSchedule() {
-  await Promise.all([loadPractices(), loadTournaments(), loadTournamentGames()]);
+  await Promise.all([loadPractices(), loadTournaments(), loadTournamentTeams(), loadTournamentGames()]);
   await Promise.all([loadPracticeRsvps(), loadTournamentRsvps(), loadPracticeCheckins()]);
 }
 function resolveSupabaseUser(user) {
@@ -2520,14 +2537,15 @@ function renderDashboard() {
   const upcomingGames = (state.tournamentGames || [])
     .filter(g => g.date >= today())
     .map(g => {
-      const tournament = state.tournaments.find(t => t.id === g.tournamentId);
+      const team = state.tournamentTeams.find(t => t.id === g.tournamentTeamId);
+      const tournament = team ? state.tournaments.find(t => t.id === team.tournamentId) : null;
       return {
         _type: 'game',
         _date: g.date,
         _start: g.start,
         _end: g.end,
         id: g.id,
-        groups: g.groups || [],
+        teamName: team ? team.name : '?',
         location: g.location || '',
         opponent: g.opponent || '',
         tournamentName: tournament ? tournament.name : 'Tournament'
@@ -2545,11 +2563,10 @@ function renderDashboard() {
     pb.innerHTML = upcoming.map(item => {
       const isPractice = item._type === 'practice';
       const dotColor = isPractice ? 'var(--green-mid)' : 'var(--orange-mid)';
-      const typeLabel = isPractice ? 'Practice' : `🏆 ${item.tournamentName}`;
-      const teamsLine = (item.groups || []).join(', ');
+      const teamsLine = isPractice ? (item.groups || []).join(', ') : '';
       const headerLine = isPractice
         ? `${teamsLine || 'Practice'} — ${item.location || 'TBD'}`
-        : `${teamsLine ? teamsLine + ' — ' : ''}${typeLabel}${item.opponent ? ' vs ' + item.opponent : ''}`;
+        : `${item.teamName} — 🏆 ${item.tournamentName}${item.opponent ? ' vs ' + item.opponent : ''}`;
       const timeStr = item._start ? `${fmtTime(item._start)}${item._end ? '–' + fmtTime(item._end) : ''}` : '';
       const checkinPill = isPractice
         ? `<span class="pill ${(item.checkedIn || []).length > 0 ? 'pill-green' : 'pill-gray'}">${(item.checkedIn || []).length} in</span>`
