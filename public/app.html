@@ -855,6 +855,7 @@ body:not([data-role="admin"]) .btn.admin-only {
         <div class="nav-item mobile-show" onclick="showPage('player-tournaments',this)"><span class="nav-icon">🏆</span><span>Tourneys</span></div>
         <div class="nav-section">Account</div>
         <div class="nav-item" onclick="showPage('parent-account',this)"><span class="nav-icon">👤</span><span>My Account</span></div>
+        <div class="nav-item" onclick="window.open('https://account.venmo.com/u/Mike-Wozniak-3Ball','_blank')"><span class="nav-icon">💳</span><span>Payments</span></div>
         <div class="nav-item" onclick="window.open('https://www.jcarroll.com/collections/3ball','_blank')"><span class="nav-icon">🛒</span><span>Store</span></div>
         <!-- Mobile-only "More" button -->
         <div class="nav-item mobile-show mobile-more-btn" onclick="openMobileMoreMenu()"><span class="nav-icon">☰</span><span>More</span></div>
@@ -2007,7 +2008,8 @@ async function loadPlayers() {
         jersey: row.jersey || '',
         parentId: row.parent_id,
         waiver: !!row.waiver_signed,
-        active: row.active !== false
+        active: row.active !== false,
+        paidMonths: row.paid_months || []
       };
     });
     state.parents.forEach(function(p) {
@@ -3979,7 +3981,11 @@ function renderPlayerDetailContent() {
   } else if (tab === 'rsvps') {
     container.innerHTML = '<div style="text-align:center;color:var(--text-secondary);padding:30px 0;">RSVP history will appear here once practices are migrated (Step 7).</div>';
   } else if (tab === 'payments') {
-    container.innerHTML = '<div style="text-align:center;color:var(--text-secondary);padding:30px 0;">Payment history will appear here once payments are migrated (Step 10).</div>';
+    container.innerHTML = '<div style="padding:14px 0;">'
+      + '<div style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;">Click a month to toggle paid / unpaid</div>'
+      + '<div id="pm-payment-grid" style="display:flex;flex-wrap:wrap;gap:6px;"></div>'
+      + '</div>';
+    renderPaymentGrid(pdState.playerId);
   } else if (tab === 'edit') {
     container.innerHTML = '<div style="text-align:center;color:var(--text-secondary);padding:30px 0;">Edit form coming in next update.</div>';
   }
@@ -5319,7 +5325,7 @@ function calEventRsvp(answer) {
 
 // ===== PAYMENT TRACKING =====
 
-function setLastPaid(playerId, ym) {
+async function setLastPaid(playerId, ym) {
   const p = state.players.find(x => x.id === playerId);
   if (!p) return;
   if (!p.paidMonths) p.paidMonths = [];
@@ -5334,9 +5340,25 @@ function setLastPaid(playerId, ym) {
     toast('Last paid set to ' + fmtMonthLabel(ym) + ' ✓');
   }
   renderRoster();
+
+  if (!sb) return;
+  try {
+    const { error } = await sb.from('players')
+      .update({ paid_months: p.paidMonths })
+      .eq('id', playerId);
+    if (error) {
+      console.error('setLastPaid error:', error);
+      toast('Save failed: ' + error.message);
+      await loadPlayers();
+      renderRoster();
+    }
+  } catch (e) {
+    console.error('setLastPaid threw:', e);
+    toast('Save failed: ' + e.message);
+  }
 }
 
-function togglePayment(playerId) {
+async function togglePayment(playerId) {
   const p = state.players.find(x => x.id === playerId);
   if (!p) return;
   if (!p.paidMonths) p.paidMonths = [];
@@ -5349,6 +5371,22 @@ function togglePayment(playerId) {
     toast('✓ Marked as paid for ' + fmtMonthLabel(curMonth));
   }
   renderRoster();
+
+  if (!sb) return;
+  try {
+    const { error } = await sb.from('players')
+      .update({ paid_months: p.paidMonths })
+      .eq('id', playerId);
+    if (error) {
+      console.error('togglePayment error:', error);
+      toast('Save failed: ' + error.message);
+      await loadPlayers();
+      renderRoster();
+    }
+  } catch (e) {
+    console.error('togglePayment threw:', e);
+    toast('Save failed: ' + e.message);
+  }
 }
 
 function fmtMonthLabel(ym) {
@@ -5371,7 +5409,7 @@ function renderPaymentGrid(playerId) {
   grid.innerHTML = months.map(ym => {
     const isPaid = paid.includes(ym);
     const isCurrent = ym === now.toISOString().slice(0,7);
-    return '<button type="button" onclick="togglePaymentModal(\''+ym+'\')"'
+    return '<button type="button" onclick="togglePaymentModal(\''+ym+'\',\''+playerId+'\')"'
       + ' style="padding:5px 10px;border-radius:20px;border:2px solid '+(isPaid?'var(--teal)':isCurrent?'var(--orange)':'var(--gray-border)')
       + ';background:'+(isPaid?'var(--teal)':isCurrent?'var(--orange-light)':'transparent')
       + ';color:'+(isPaid?'#fff':isCurrent?'var(--orange-mid)':'var(--text-secondary)')
@@ -5381,33 +5419,34 @@ function renderPaymentGrid(playerId) {
   }).join('');
 }
 
-function togglePaymentModal(ym) {
-  // toggle within the modal (before saving)
-  const grid = document.getElementById('pm-payment-grid');
-  const btn = Array.from(grid.querySelectorAll('button')).find(b => b.textContent.replace('✓ ','').trim() === fmtMonthLabel(ym));
-  const paid = btn && (btn.style.background.includes('teal') || btn.textContent.startsWith('✓'));
-  // Update the button visually and track in a temp set on the grid
-  if (!grid._tempPaid) {
-    // Initialize from player if editing
-    const p = state.editingId ? state.players.find(x=>x.id===state.editingId) : null;
-    grid._tempPaid = new Set(p && p.paidMonths ? p.paidMonths : []);
+async function togglePaymentModal(ym, playerId) {
+  const p = state.players.find(x => x.id === playerId);
+  if (!p) return;
+  if (!p.paidMonths) p.paidMonths = [];
+
+  // Optimistic local toggle
+  if (p.paidMonths.includes(ym)) {
+    p.paidMonths = p.paidMonths.filter(m => m !== ym);
+  } else {
+    p.paidMonths.push(ym);
   }
-  if (paid) { grid._tempPaid.delete(ym); } else { grid._tempPaid.add(ym); }
-  // Re-render with updated state
-  const months = Array.from(grid.querySelectorAll('button')).map(b => b.getAttribute('onclick').match(/'([^']+)'/)[1]);
-  const now = new Date();
-  grid.innerHTML = months.map(m => {
-    const isPaid = grid._tempPaid.has(m);
-    const isCurrent = m === now.toISOString().slice(0,7);
-    return '<button type="button" onclick="togglePaymentModal(\''+m+'\')"'
-      + ' style="padding:5px 10px;border-radius:20px;border:2px solid '+(isPaid?'var(--teal)':isCurrent?'var(--orange)':'var(--gray-border)')
-      + ';background:'+(isPaid?'var(--teal)':isCurrent?'var(--orange-light)':'transparent')
-      + ';color:'+(isPaid?'#fff':isCurrent?'var(--orange-mid)':'var(--text-secondary)')
-      + ';cursor:pointer;font-size:12px;font-weight:600;">'
-      + (isPaid ? '✓ ' : '') + fmtMonthLabel(m)
-      + '</button>';
-  }).join('');
-  grid._tempPaid = grid._tempPaid; // preserve reference
+  renderPaymentGrid(playerId);
+
+  if (!sb) return;
+  try {
+    const { error } = await sb.from('players')
+      .update({ paid_months: p.paidMonths })
+      .eq('id', playerId);
+    if (error) {
+      console.error('togglePaymentModal error:', error);
+      toast('Save failed: ' + error.message);
+      await loadPlayers();
+      renderPaymentGrid(playerId);
+    }
+  } catch (e) {
+    console.error('togglePaymentModal threw:', e);
+    toast('Save failed: ' + e.message);
+  }
 }
 
 // ===== PLAYER SWITCHER =====
