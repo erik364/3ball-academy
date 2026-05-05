@@ -2706,6 +2706,19 @@ async function regNext() {
       toast('Account created! Awaiting admin approval before you can sign in.');
       document.getElementById('login-email').value = email;
       document.getElementById('login-password').value = '';
+
+      try {
+        const { data: emailData, error: emailError } = await sb.functions.invoke('send-registration-confirmation', {
+          body: { email: email, first: first },
+        });
+        if (emailError) {
+          console.error('Registration confirmation email failed:', emailError);
+        } else {
+          console.log('Registration confirmation email sent:', emailData);
+        }
+      } catch (emailErr) {
+        console.error('Registration confirmation email threw:', emailErr);
+      }
     } catch (e) {
       console.error('Registration error:', e);
       alert('Something went wrong. Please try again or contact support.');
