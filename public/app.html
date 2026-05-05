@@ -2545,6 +2545,12 @@ function submitNewPassword() {
 let regStep = 1;
 let regPlayerForms = []; // staged player data
 
+function isValidGradYear(val) {
+  if (!val) return false;
+  const trimmed = String(val).trim();
+  return /^\d{4}$/.test(trimmed);
+}
+
 function showRegisterModal() {
   regStep = 1;
   regPlayerForms = [{}];
@@ -2598,9 +2604,9 @@ function renderRegPlayerForms() {
         ${regPlayerForms.length > 1 ? `<span onclick="removeRegPlayer(${i})" style="cursor:pointer;color:#A32D2D;font-size:13px;">✕ Remove</span>` : ''}
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-        <div class="form-group"><label class="form-label">First Name</label><input class="form-input" id="rp-first-${i}" placeholder="First" value="${p.first||''}"></div>
-        <div class="form-group"><label class="form-label">Last Name</label><input class="form-input" id="rp-last-${i}" placeholder="Last" value="${p.last||''}"></div>
-        <div class="form-group" style="grid-column:1/-1;"><label class="form-label">Grad Year</label><input class="form-input" id="rp-grad-${i}" placeholder="2028" value="${p.grad||''}"></div>
+        <div class="form-group"><label class="form-label">First Name <span style="color:var(--orange);">*</span></label><input class="form-input" id="rp-first-${i}" placeholder="First" value="${p.first||''}"></div>
+        <div class="form-group"><label class="form-label">Last Name <span style="color:var(--orange);">*</span></label><input class="form-input" id="rp-last-${i}" placeholder="Last" value="${p.last||''}"></div>
+        <div class="form-group" style="grid-column:1/-1;"><label class="form-label">Grad Year <span style="color:var(--orange);">*</span></label><input class="form-input" id="rp-grad-${i}" placeholder="2028" value="${p.grad||''}"></div>
       </div>
       <div style="margin-top:6px;padding:8px 10px;background:var(--orange-light);border-radius:var(--radius);font-size:12px;color:var(--orange-mid);">
         🏀 Team / group assignment will be set by your coach after registration.
@@ -2629,8 +2635,16 @@ async function regNext() {
     showRegStep(2);
   } else if (regStep === 2) {
     const players = collectRegPlayerForms();
-    for (const p of players) {
-      if (!p.first || !p.last) { alert('Please enter a name for each player.'); return; }
+    for (let i = 0; i < players.length; i++) {
+      const p = players[i];
+      if (!p.first || !p.last) {
+        alert('Please enter a first and last name for Player ' + (i+1) + '.');
+        return;
+      }
+      if (!isValidGradYear(p.grad)) {
+        alert('Please enter a 4-digit graduation year for Player ' + (i+1) + ' (e.g., 2028).');
+        return;
+      }
     }
     regPlayerForms = players;
     regStep = 3;
@@ -4908,7 +4922,8 @@ async function saveChild() {
       alert('Save failed: ' + e.message);
     }
   } else {
-    // CREATE: requires waiver to be checked
+    // CREATE: requires valid 4-digit grad year and waiver to be checked
+    if (!isValidGradYear(grad)) { alert('Please enter a 4-digit graduation year (e.g., 2028).'); return; }
     if (!waiver) { alert('Please agree to the waiver to add a player.'); return; }
     const row = {
       first: first,
