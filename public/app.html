@@ -2910,6 +2910,20 @@ async function approveParent(parentId) {
     await loadParents();
     renderDashboard();
     toast(`Approved ${p.first} ${p.last}.`);
+    try {
+      const { data: emailData, error: emailError } = await sb.functions.invoke('send-welcome-email', {
+        body: { email: p.email, first: p.first },
+      });
+      if (emailError) {
+        console.error('Welcome email failed:', emailError);
+        toast('Approved — but welcome email failed to send. Check Resend dashboard.');
+      } else {
+        console.log('Welcome email sent:', emailData);
+      }
+    } catch (emailErr) {
+      console.error('Welcome email threw:', emailErr);
+      toast('Approved — email send error. Check console.');
+    }
   } catch (e) {
     console.error('approveParent error:', e);
     alert('Approve failed: ' + e.message);
