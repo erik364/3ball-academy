@@ -1594,6 +1594,12 @@ body:not([data-role="admin"]) .btn.admin-only {
         <div class="form-group"><label class="form-label">Start Date</label><input class="form-input" id="t-start" type="date"></div>
         <div class="form-group"><label class="form-label">End Date</label><input class="form-input" id="t-end" type="date"></div>
       </div>
+      <div class="form-group">
+        <label class="form-label">Participating Teams <span style="color:var(--orange);">*</span></label>
+        <div id="t-teams-container" style="display:flex;flex-wrap:wrap;gap:8px;padding:8px;border:1px solid var(--gray-border);border-radius:6px;background:var(--gray-bg);">
+          <!-- checkboxes rendered at modal open -->
+        </div>
+      </div>
       <div class="form-group"><label class="form-label">Notes</label><textarea class="form-textarea" id="t-notes" placeholder="Game times, parking info, what to bring…"></textarea></div>
       <div class="form-help" style="margin-top:8px;font-size:12px;color:var(--text-secondary);">
         💡 After saving, add games (date, time, location, opponent, coaches) on the
@@ -2126,6 +2132,7 @@ async function loadTournaments() {
         address: '',
         notes: row.notes || '',
         result: '',
+        teams: Array.isArray(row.teams) ? row.teams : [],
         groups: [],            // moved to tournament_games — empty for now
         coachIds: [],          // moved to tournament_games — empty for now
         checkedIn: [],
@@ -3170,7 +3177,8 @@ function renderTournaments() {
         ${teamSummary ? `<div style="margin-bottom:8px;padding:6px 8px;background:var(--gray-bg);border-radius:6px;display:flex;flex-wrap:wrap;gap:3px;align-items:center;"><span style="font-size:10px;font-weight:600;color:var(--text-secondary);margin-right:4px;">Going:</span>${teamSummary}</div>` : ''}
         ${t.notes ? `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;border-top:1px solid var(--gray-border);padding-top:8px;">${t.notes}</div>` : ''}
         <div style="display:flex;gap:6px;margin-top:10px;border-top:1px solid var(--gray-border);padding-top:10px;" onclick="event.stopPropagation()">
-          ${isAdmin ? `<button class="btn btn-sm" onclick="editTournament('${t.id}')">Edit</button>
+          ${isAdmin ? `<button class="btn btn-sm" onclick="sendTournamentAvailability('${t.id}'); event.stopPropagation();">Send RSVP Request</button>
+          <button class="btn btn-sm" onclick="editTournament('${t.id}')">Edit</button>
           <button class="btn btn-sm btn-danger" onclick="deleteTournament('${t.id}')">Delete</button>` : ''}
           <span style="margin-left:auto;font-size:11px;color:var(--text-secondary);align-self:center;">Click card to manage teams →</span>
         </div>
@@ -3187,17 +3195,30 @@ function openTournamentModal(id) {
   document.getElementById('t-start').value = t ? t.startDate : '';
   document.getElementById('t-end').value = t ? t.endDate : '';
   document.getElementById('t-notes').value = t ? t.notes : '';
+  const teamCodes = ['T','C','B','G','O','3BHS','3BGals'];
+  const selected = (t && Array.isArray(t.teams)) ? t.teams : [];
+  document.getElementById('t-teams-container').innerHTML = teamCodes.map(code =>
+    `<label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;"><input type="checkbox" id="t-team-${code}" value="${code}" style="accent-color:var(--green-dark);" ${selected.includes(code)?'checked':''}> ${code}</label>`
+  ).join('');
   openModal('tournament-modal');
 }
 function editTournament(id) { openTournamentModal(id); }
 async function saveTournament() {
   if (!document.getElementById('t-name').value || !document.getElementById('t-start').value) { alert('Name and start date required.'); return; }
+  const teams = Array.from(
+    document.querySelectorAll('#t-teams-container input[type="checkbox"]:checked')
+  ).map(cb => cb.value);
+  if (teams.length === 0) {
+    alert('Please select at least one participating team.');
+    return;
+  }
   const startVal = document.getElementById('t-start').value;
   const row = {
     name: document.getElementById('t-name').value,
     start_date: startVal,
     end_date: document.getElementById('t-end').value || startVal,
-    notes: document.getElementById('t-notes').value
+    notes: document.getElementById('t-notes').value,
+    teams: teams
   };
 
   if (!sb) { alert('Auth not ready.'); return; }
@@ -3219,6 +3240,32 @@ async function saveTournament() {
   } catch (e) {
     console.error('saveTournament threw:', e);
     alert('Could not save the tournament.');
+  }
+}
+async function sendTournamentAvailability(tournamentId) {
+  const t = state.tournaments.find(x => x.id === tournamentId);
+  if (!t) { alert('Tournament not found'); return; }
+  if (!t.teams || t.teams.length === 0) {
+    alert('Add participating teams first by editing the tournament.');
+    return;
+  }
+
+  const teamList = t.teams.join(', ');
+  if (!confirm(`Send availability request for "${t.name}" to all parents of players on: ${teamList}?`)) return;
+
+  try {
+    const { data, error } = await sb.functions.invoke('send-tournament-availability-request', {
+      body: { tournament_id: tournamentId }
+    });
+    if (error) {
+      console.error('Availability request failed:', error);
+      alert('Failed to send. Check console for details.');
+      return;
+    }
+    alert(`Sent. ${data?.sent ?? 0} emails delivered to parents.`);
+  } catch (e) {
+    console.error('Availability request threw:', e);
+    alert('Error sending. Check console.');
   }
 }
 async function deleteTournament(id) {
