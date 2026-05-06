@@ -4277,23 +4277,42 @@ function renderPlayerHome() {
     }).join('');
   }
 
-  // Filter to upcoming tournaments where the selected kid is on a tournament team's roster
-  const upcomingTournaments = state.tournaments.filter(t => {
-    if (t.startDate < today()) return false;
-    return state.tournamentTeams.some(team =>
+  // Upcoming tournaments: rostered (kid in tournament_teams.playerIds) OR
+  // invited (kid's permanent team in tournaments.teams[] but no roster yet).
+  const upcomingTournaments = state.tournaments.map(t => {
+    if (t.startDate < today()) return null;
+    const isRostered = state.tournamentTeams.some(team =>
       team.tournamentId === t.id && (team.playerIds || []).includes(p.id)
     );
-  }).sort((a, b) => a.startDate.localeCompare(b.startDate)).slice(0, 5);
+    if (isRostered) return { tournament: t, mode: 'rostered' };
+    const tourTeams = Array.isArray(t.teams) ? t.teams : [];
+    if (p.team && tourTeams.includes(p.team)) return { tournament: t, mode: 'invited' };
+    return null;
+  }).filter(Boolean)
+    .sort((a, b) => a.tournament.startDate.localeCompare(b.tournament.startDate))
+    .slice(0, 5);
 
   const pt = document.getElementById('player-tournaments-home');
   if (!upcomingTournaments.length) {
     pt.innerHTML = '<div class="empty"><div class="empty-icon">🏆</div><div class="empty-text">No upcoming tournaments</div></div>';
   } else {
-    pt.innerHTML = upcomingTournaments.map(t => {
+    pt.innerHTML = upcomingTournaments.map(entry => {
+      const t = entry.tournament;
       const datesStr = fmtDate(t.startDate) + (t.startDate !== t.endDate ? ' – ' + fmtDate(t.endDate) : '');
-      return `<div style="padding:10px 14px;border-bottom:1px solid var(--gray-border);cursor:pointer;transition:background 0.1s;" onclick="showPage('player-tournaments', null)" onmouseover="this.style.background='var(--gray-bg)'" onmouseout="this.style.background=''">
-        <div style="font-size:13px;font-weight:500;">${t.name}</div>
-        <div style="font-size:11px;color:var(--text-secondary);">${datesStr}</div>
+      let pill = '';
+      if (entry.mode === 'invited') {
+        const r = state.tournamentRsvps.find(x => x.tournamentId === t.id && x.playerId === p.id);
+        const ans = r ? r.answer : null;
+        if (ans === 'yes') pill = '<span class="pill pill-green">Going ✓</span>';
+        else if (ans === 'no') pill = '<span class="pill pill-red">Not going ✗</span>';
+        else pill = '<span class="pill pill-orange">RSVP Needed</span>';
+      }
+      return `<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--gray-border);cursor:pointer;transition:background 0.1s;" onclick="showPage('player-tournaments', null)" onmouseover="this.style.background='var(--gray-bg)'" onmouseout="this.style.background=''">
+        <div style="flex:1;">
+          <div style="font-size:13px;font-weight:500;">${t.name}</div>
+          <div style="font-size:11px;color:var(--text-secondary);">${datesStr}</div>
+        </div>
+        ${pill}
       </div>`;
     }).join('');
   }
