@@ -1567,6 +1567,12 @@ body:not([data-role="admin"]) .btn.admin-only {
         <label class="form-label">Assigned Coaches</label>
         <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;" id="p-coaches"></div>
       </div>
+      <div class="form-row" style="margin-top:16px;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+          <input type="checkbox" id="prac-notify" />
+          <span>Notify parents by email</span>
+        </label>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn" onclick="closeModal('practice-modal')">Cancel</button>
@@ -3055,6 +3061,7 @@ function openPracticeModal(id) {
     `<label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;padding:3px 8px;border-radius:4px;background:${assigned.includes(c.id)?'var(--green-light)':'transparent'};border:1px solid ${assigned.includes(c.id)?'var(--green-mid)':'var(--gray-border)'};">
       <input type="checkbox" value="${c.id}" ${assigned.includes(c.id)?'checked':''} style="accent-color:var(--green-dark);"> ${c.first} ${c.last}
     </label>`).join('');
+  document.getElementById('prac-notify').checked = !id;
   openModal('practice-modal');
 }
 
@@ -3078,19 +3085,42 @@ async function savePractice() {
 
   if (!sb) { alert('Auth not ready.'); return; }
 
+  const isNew = !state.editingId;
+  const notify = document.getElementById('prac-notify').checked;
+
   try {
+    let practiceId = state.editingId;
     if (state.editingId) {
       const { error } = await sb.from('practices').update(row).eq('id', state.editingId);
       if (error) { alert('Could not save: ' + error.message); return; }
       toast('Practice updated!');
     } else {
-      const { error } = await sb.from('practices').insert(row);
+      const { data, error } = await sb.from('practices').insert(row).select();
       if (error) { alert('Could not save: ' + error.message); return; }
+      practiceId = data && data[0] && data[0].id;
       toast('Practice added!');
     }
     closeModal('practice-modal');
     await loadSchedule();
     renderPractices(practiceFilter);
+
+    if (notify && practiceId) {
+      try {
+        const { data: emailData, error: emailErr } = await sb.functions.invoke('send-practice-scheduled', {
+          body: { practice_id: practiceId }
+        });
+        if (emailErr) {
+          console.error('Practice notification email failed:', emailErr);
+          toast('Saved — but notification email failed. See console.');
+        } else {
+          console.log('Practice notification sent:', emailData);
+          toast(`Saved. Notifications sent: ${emailData?.sent ?? 0}`);
+        }
+      } catch (e) {
+        console.error('Practice notification threw:', e);
+        toast('Saved — notification error. See console.');
+      }
+    }
   } catch (e) {
     console.error('savePractice threw:', e);
     alert('Could not save the practice.');
