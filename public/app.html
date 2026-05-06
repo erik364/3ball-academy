@@ -3555,19 +3555,45 @@ async function saveTeam() {
     coach_ids: coachIds
   };
 
+  // Capture pre-existing roster so we can detect newly-added players after save
+  const prevTeam = state.editingId ? state.tournamentTeams.find(x => x.id === state.editingId) : null;
+  const prevPlayerIds = prevTeam ? (prevTeam.playerIds || []) : [];
+
   try {
+    let teamId = state.editingId;
     if (state.editingId) {
       const { error } = await sb.from('tournament_teams').update(row).eq('id', state.editingId);
       if (error) { console.error(error); alert('Save failed: ' + error.message); return; }
       toast('Team updated!');
     } else {
-      const { error } = await sb.from('tournament_teams').insert(row);
+      const { data, error } = await sb.from('tournament_teams').insert(row).select();
       if (error) { console.error(error); alert('Save failed: ' + error.message); return; }
+      teamId = data && data[0] && data[0].id;
       toast('Team added!');
     }
     await loadTournamentTeams();
     closeModal('team-modal');
     renderTournamentDetail();
+
+    const addedPlayerIds = playerIds.filter(id => !prevPlayerIds.includes(id));
+    if (teamId && addedPlayerIds.length > 0) {
+      try {
+        const { data: emailData, error: emailErr } = await sb.functions.invoke('send-roster-confirmation', {
+          body: {
+            tournament_id: state.viewingTournamentId,
+            tournament_team_id: teamId,
+            added_player_ids: addedPlayerIds
+          }
+        });
+        if (emailErr) {
+          console.error('Roster confirmation email failed:', emailErr);
+        } else {
+          console.log('Roster confirmation result:', emailData);
+        }
+      } catch (e) {
+        console.error('Roster confirmation threw:', e);
+      }
+    }
   } catch (e) {
     console.error('saveTeam error:', e);
     alert('Save failed: ' + e.message);
