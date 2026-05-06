@@ -1739,7 +1739,8 @@ let state = {
   viewingTournamentId: null,
   editingGameTeamId: null,
   coaches: [],
-  waiver: ''
+  waiver: '',
+  homeRsvpEditing: new Set()
 };
 
 // ===== HELPERS =====
@@ -4347,17 +4348,33 @@ function renderPlayerHome() {
   } else {
     pu.innerHTML = upcomingPractices.map(pr => {
       const rsvpVal = (pr.rsvp || {})[p.id];
-      let rsvpPill;
-      if (rsvpVal === 'yes') rsvpPill = '<span class="pill pill-green">Going ✓</span>';
-      else if (rsvpVal === 'no') rsvpPill = '<span class="pill pill-red">Not going ✗</span>';
-      else rsvpPill = '<span class="pill pill-gray">Not yet answered</span>';
+      const inEdit = state.homeRsvpEditing.has('practice:' + pr.id);
+      const buttonsHtml = `<div style="display:flex;gap:6px;" onclick="event.stopPropagation();">
+        <button class="btn btn-sm" onclick="event.stopPropagation(); homeRsvpPractice('${pr.id}','yes')" style="background:transparent;color:var(--teal-dark);border-color:#9FE1CB;padding:4px 10px;">✓ Yes</button>
+        <button class="btn btn-sm" onclick="event.stopPropagation(); homeRsvpPractice('${pr.id}','no')" style="background:transparent;color:#A32D2D;border-color:#F7C1C1;padding:4px 10px;">✗ No</button>
+      </div>`;
+      let rsvpUI;
+      if (rsvpVal === 'yes' || rsvpVal === 'no') {
+        if (inEdit) {
+          rsvpUI = buttonsHtml;
+        } else {
+          const pillCls = rsvpVal === 'yes' ? 'pill-green' : 'pill-red';
+          const pillLbl = rsvpVal === 'yes' ? 'Going ✓' : 'Not going ✗';
+          rsvpUI = `<div style="display:flex;align-items:center;gap:6px;">
+            <span class="pill ${pillCls}">${pillLbl}</span>
+            <a onclick="event.stopPropagation(); homeToggleEditRsvp('practice:${pr.id}')" style="font-size:11px;color:var(--text-secondary);text-decoration:underline;cursor:pointer;">Change</a>
+          </div>`;
+        }
+      } else {
+        rsvpUI = buttonsHtml;
+      }
 
       return `<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--gray-border);cursor:pointer;transition:background 0.1s;" onclick="showPage('player-schedule', null)" onmouseover="this.style.background='var(--gray-bg)'" onmouseout="this.style.background=''">
         <div style="flex:1;">
           <div style="font-size:13px;font-weight:500;">${(pr.groups || []).join(', ')} @ ${pr.location || 'TBD'}</div>
           <div style="font-size:11px;color:var(--text-secondary);">${fmtDate(pr.date)} · ${fmtTime(pr.start)}–${fmtTime(pr.end)}</div>
         </div>
-        ${rsvpPill}
+        ${rsvpUI}
       </div>`;
     }).join('');
   }
@@ -4384,20 +4401,36 @@ function renderPlayerHome() {
     pt.innerHTML = upcomingTournaments.map(entry => {
       const t = entry.tournament;
       const datesStr = fmtDate(t.startDate) + (t.startDate !== t.endDate ? ' – ' + fmtDate(t.endDate) : '');
-      let pill = '';
+      let rsvpUI = '';
       if (entry.mode === 'invited') {
         const r = state.tournamentRsvps.find(x => x.tournamentId === t.id && x.playerId === p.id);
         const ans = r ? r.answer : null;
-        if (ans === 'yes') pill = '<span class="pill pill-green">Going ✓</span>';
-        else if (ans === 'no') pill = '<span class="pill pill-red">Not going ✗</span>';
-        else pill = '<span class="pill pill-orange">RSVP Needed</span>';
+        const inEdit = state.homeRsvpEditing.has('tournament:' + t.id);
+        const buttonsHtml = `<div style="display:flex;gap:6px;" onclick="event.stopPropagation();">
+          <button class="btn btn-sm" onclick="event.stopPropagation(); homeRsvpTournament('${t.id}','yes')" style="background:transparent;color:var(--teal-dark);border-color:#9FE1CB;padding:4px 10px;">✓ Yes</button>
+          <button class="btn btn-sm" onclick="event.stopPropagation(); homeRsvpTournament('${t.id}','no')" style="background:transparent;color:#A32D2D;border-color:#F7C1C1;padding:4px 10px;">✗ No</button>
+        </div>`;
+        if (ans === 'yes' || ans === 'no') {
+          if (inEdit) {
+            rsvpUI = buttonsHtml;
+          } else {
+            const pillCls = ans === 'yes' ? 'pill-green' : 'pill-red';
+            const pillLbl = ans === 'yes' ? 'Going ✓' : 'Not going ✗';
+            rsvpUI = `<div style="display:flex;align-items:center;gap:6px;">
+              <span class="pill ${pillCls}">${pillLbl}</span>
+              <a onclick="event.stopPropagation(); homeToggleEditRsvp('tournament:${t.id}')" style="font-size:11px;color:var(--text-secondary);text-decoration:underline;cursor:pointer;">Change</a>
+            </div>`;
+          }
+        } else {
+          rsvpUI = buttonsHtml;
+        }
       }
       return `<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--gray-border);cursor:pointer;transition:background 0.1s;" onclick="showPage('player-tournaments', null)" onmouseover="this.style.background='var(--gray-bg)'" onmouseout="this.style.background=''">
         <div style="flex:1;">
           <div style="font-size:13px;font-weight:500;">${t.name}</div>
           <div style="font-size:11px;color:var(--text-secondary);">${datesStr}</div>
         </div>
-        ${pill}
+        ${rsvpUI}
       </div>`;
     }).join('');
   }
@@ -4556,7 +4589,8 @@ function renderPlayerScheduleFilter(filter) {
   }).join('');
 }
 
-async function setRsvp(sessionId, type, answer) {
+async function setRsvp(sessionId, type, answer, opts) {
+  opts = opts || {};
   const p = state.currentUser;
   if (!p || !sb) return;
   const session = type==='practice' ? state.practices.find(x=>x.id===sessionId) : state.tournaments.find(x=>x.id===sessionId);
@@ -4583,7 +4617,7 @@ async function setRsvp(sessionId, type, answer) {
       const ins = await sb.from(tableName).insert(row);
       if (ins.error) throw ins.error;
     }
-    toast(answer==='yes' ? "Marked as going 🏀" : "Marked as not going.");
+    if (!opts.silent) toast(answer==='yes' ? "Marked as going 🏀" : "Marked as not going.");
   } catch (e) {
     console.error('setRsvp error:', e);
     alert('Could not save your RSVP. Please try again.');
@@ -4945,7 +4979,8 @@ function renderPlayerTournaments() {
   }).join('');
 }
 
-async function setTournRsvp(tournId, playerId, answer) {
+async function setTournRsvp(tournId, playerId, answer, opts) {
+  opts = opts || {};
   if (!sb) return;
 
   // Optimistic local update on flat tournamentRsvps array
@@ -4974,13 +5009,37 @@ async function setTournRsvp(tournId, playerId, answer) {
     }
     await loadTournamentRsvps();
     renderPlayerTournaments();
-    toast(answer === 'yes' ? 'Marked as going 🏆' : 'Marked as not going.');
+    if (!opts.silent) toast(answer === 'yes' ? 'Marked as going 🏆' : 'Marked as not going.');
   } catch (e) {
     console.error('setTournRsvp error:', e);
     alert('Could not save RSVP: ' + (e.message || 'unknown error'));
     await loadTournamentRsvps();
     renderPlayerTournaments();
   }
+}
+
+// ----- Home dashboard inline RSVP wrappers -----
+// Goal: silent state-flip on Home, no toast, no navigation, instant render.
+async function homeRsvpPractice(practiceId, answer) {
+  state.homeRsvpEditing.delete('practice:' + practiceId);
+  const promise = setRsvp(practiceId, 'practice', answer, { silent: true });
+  renderPlayerHome();
+  await promise;
+  renderPlayerHome();
+}
+async function homeRsvpTournament(tournamentId, answer) {
+  state.homeRsvpEditing.delete('tournament:' + tournamentId);
+  const playerId = state.currentUser ? state.currentUser.id : null;
+  if (!playerId) return;
+  const promise = setTournRsvp(tournamentId, playerId, answer, { silent: true });
+  renderPlayerHome();
+  await promise;
+  renderPlayerHome();
+}
+function homeToggleEditRsvp(key) {
+  if (state.homeRsvpEditing.has(key)) state.homeRsvpEditing.delete(key);
+  else state.homeRsvpEditing.add(key);
+  renderPlayerHome();
 }
 
 async function setGameRsvp(gameId, playerId, answer) {
