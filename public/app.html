@@ -4649,15 +4649,19 @@ function renderPlayerTournaments() {
     return;
   }
 
-  // For each tournament, collect the teams the selected kid is rostered on
+  // For each tournament, classify as rostered (kid in tournament_teams.playerIds)
+  // or invited (kid's permanent team is in tournaments.teams but no roster yet).
   const tournamentsWithKid = state.tournaments.map(tour => {
     const teamsForKid = state.tournamentTeams
       .filter(team => team.tournamentId === tour.id)
       .filter(team => (team.playerIds || []).includes(kid.id));
 
-    if (!teamsForKid.length) return null;
+    if (teamsForKid.length) return { mode: 'rostered', tournament: tour, teams: teamsForKid };
 
-    return { tournament: tour, teams: teamsForKid };
+    const tourTeams = Array.isArray(tour.teams) ? tour.teams : [];
+    if (kid.team && tourTeams.includes(kid.team)) return { mode: 'invited', tournament: tour };
+
+    return null;
   }).filter(Boolean);
 
   if (!tournamentsWithKid.length) {
@@ -4677,7 +4681,6 @@ function renderPlayerTournaments() {
 
   tc.innerHTML = tournamentsWithKid.map(entry => {
     const t = entry.tournament;
-    const teams = entry.teams;
     const past = isPast(t.endDate);
     const datesStr = fmtDate(t.startDate) + (t.startDate !== t.endDate ? ' – ' + fmtDate(t.endDate) : '');
 
@@ -4686,7 +4689,48 @@ function renderPlayerTournaments() {
     const isYes = tournAns === 'yes';
     const isNo = tournAns === 'no';
 
-    // ---- ROSTER DISPLAY (always visible) ----
+    const tournamentRsvpHtml = past ? '' : `
+      <div style="display:flex;gap:8px;margin-top:6px;">
+        <button class="btn btn-sm" onclick="setTournRsvp('${t.id}','${kid.id}','yes')"
+          style="flex:1;background:${isYes?'var(--teal)':'transparent'};color:${isYes?'#fff':'var(--teal-dark)'};border-color:${isYes?'var(--teal)':'#9FE1CB'};">
+          ✓ Yes
+        </button>
+        <button class="btn btn-sm" onclick="setTournRsvp('${t.id}','${kid.id}','no')"
+          style="flex:1;background:${isNo?'#E24B4A':'transparent'};color:${isNo?'#fff':'#A32D2D'};border-color:${isNo?'#E24B4A':'#F7C1C1'};">
+          ✗ No
+        </button>
+      </div>`;
+
+    // ---- INVITED (not yet rostered) ----
+    if (entry.mode === 'invited') {
+      const answeredLine = isYes
+        ? `<div style="font-size:12px;color:var(--teal-dark);font-weight:600;margin-top:6px;">You said yes — awaiting roster.</div>`
+        : isNo
+        ? `<div style="font-size:12px;color:#A32D2D;font-weight:600;margin-top:6px;">You said no.</div>`
+        : '';
+      return `<div class="panel">
+        <div style="padding:14px 16px;">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:6px;">
+            <div>
+              <div style="font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:700;">${t.name}</div>
+              <div style="font-size:12px;color:var(--text-secondary);margin-top:2px;">${datesStr}</div>
+            </div>
+            <span class="pill ${past ? 'pill-gray' : 'pill-orange'}">${past ? 'Past' : 'RSVP Needed'}</span>
+          </div>
+          ${t.notes ? `<div style="font-size:12px;color:var(--text-secondary);font-style:italic;margin-top:4px;margin-bottom:10px;">${t.notes}</div>` : '<div style="margin-bottom:10px;"></div>'}
+          <div style="font-size:13px;color:var(--text);margin-bottom:6px;">
+            Is <strong>${kid.first}</strong> available for this tournament?
+          </div>
+          ${past
+            ? `<div style="font-size:12px;color:var(--text-secondary);font-style:italic;">Tournament complete.</div>`
+            : tournamentRsvpHtml + answeredLine
+          }
+        </div>
+      </div>`;
+    }
+
+    // ---- ROSTERED ----
+    const teams = entry.teams;
     const rosterSections = teams.map(team => {
       const rosterPlayers = (team.playerIds || [])
         .map(pid => state.players.find(p => p.id === pid))
@@ -4773,18 +4817,6 @@ function renderPlayerTournaments() {
         </div>`;
       }
     }
-
-    const tournamentRsvpHtml = past ? '' : `
-      <div style="display:flex;gap:8px;margin-top:6px;">
-        <button class="btn btn-sm" onclick="setTournRsvp('${t.id}','${kid.id}','yes')"
-          style="flex:1;background:${isYes?'var(--teal)':'transparent'};color:${isYes?'#fff':'var(--teal-dark)'};border-color:${isYes?'var(--teal)':'#9FE1CB'};">
-          ✓ Yes
-        </button>
-        <button class="btn btn-sm" onclick="setTournRsvp('${t.id}','${kid.id}','no')"
-          style="flex:1;background:${isNo?'#E24B4A':'transparent'};color:${isNo?'#fff':'#A32D2D'};border-color:${isNo?'#E24B4A':'#F7C1C1'};">
-          ✗ No
-        </button>
-      </div>`;
 
     return `<div class="panel">
       <div style="padding:14px 16px;">
