@@ -997,6 +997,8 @@ body:not([data-role="admin"]) .btn.admin-only {
             </div>
           </div>
 
+          <div id="td-rsvp-section"></div>
+
           <div class="section-header">
             <span class="section-title">Teams</span>
             <button class="btn btn-primary btn-sm" onclick="openTeamModal(null)">+ Add Team</button>
@@ -3296,6 +3298,63 @@ function renderTournamentDetail() {
   document.getElementById('td-dates').textContent = fmtDate(t.startDate) +
     (t.startDate !== t.endDate ? ' – ' + fmtDate(t.endDate) : '');
   document.getElementById('td-notes').textContent = t.notes || '';
+
+  // RSVP Responses section (one block per invited team)
+  const rsvpSection = document.getElementById('td-rsvp-section');
+  const invitedTeams = Array.isArray(t.teams) ? t.teams : [];
+  if (!invitedTeams.length) {
+    rsvpSection.innerHTML = '';
+  } else {
+    const teamBlocks = invitedTeams.map(teamCode => {
+      const teamPlayers = state.players
+        .filter(pl => pl.team === teamCode && pl.active !== false)
+        .sort((a, b) => (a.last + a.first).localeCompare(b.last + b.first));
+
+      const rows = teamPlayers.map(pl => {
+        const r = state.tournamentRsvps.find(x => x.tournamentId === t.id && x.playerId === pl.id);
+        const ans = r ? r.answer : null;
+        return { player: pl, answer: ans };
+      });
+
+      const yesCount = rows.filter(r => r.answer === 'yes').length;
+      const noCount = rows.filter(r => r.answer === 'no').length;
+      const pendingCount = rows.filter(r => r.answer !== 'yes' && r.answer !== 'no').length;
+
+      const sortKey = r => r.answer === 'yes' ? 0 : r.answer === 'no' ? 2 : 1;
+      rows.sort((a, b) => sortKey(a) - sortKey(b)
+        || (a.player.last + a.player.first).localeCompare(b.player.last + b.player.first));
+
+      const playerRowsHtml = rows.length
+        ? rows.map(r => {
+            const pillClass = r.answer === 'yes' ? 'pill-green' : r.answer === 'no' ? 'pill-red' : 'pill-gray';
+            const pillLabel = r.answer === 'yes' ? 'Yes' : r.answer === 'no' ? 'No' : 'Pending';
+            return `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--gray-border);">
+              <span style="font-size:13px;">${r.player.first} ${r.player.last}</span>
+              <span class="pill ${pillClass}">${pillLabel}</span>
+            </div>`;
+          }).join('')
+        : '<div style="font-size:12px;color:var(--text-secondary);font-style:italic;padding:6px 0;">No players on this team.</div>';
+
+      return `<div class="panel" style="margin-bottom:10px;">
+        <div style="padding:12px 16px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+            <div style="font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:700;">${teamCode}</div>
+            <div style="font-size:12px;color:var(--text-secondary);">
+              ${yesCount} yes · ${noCount} no · ${pendingCount} pending
+            </div>
+          </div>
+          ${playerRowsHtml}
+        </div>
+      </div>`;
+    }).join('');
+
+    rsvpSection.innerHTML = `
+      <div class="section-header">
+        <span class="section-title">RSVP Responses</span>
+      </div>
+      ${teamBlocks}
+    `;
+  }
 
   const teams = state.tournamentTeams.filter(tm => tm.tournamentId === t.id);
   const list = document.getElementById('td-teams-list');
