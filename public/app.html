@@ -2733,6 +2733,34 @@ async function regNext() {
       } catch (emailErr) {
         console.error('Registration confirmation email threw:', emailErr);
       }
+
+      try {
+        const playerPayload = (players || []).map(function(p) {
+          return {
+            first: p.first || '',
+            last: p.last || '',
+            grad_year: p.grad ? parseInt(p.grad, 10) : null
+          };
+        });
+        const { data: adminAlertData, error: adminAlertError } = await sb.functions.invoke('send-admin-registration-alert', {
+          body: {
+            parent: {
+              first: first,
+              last: last,
+              email: email,
+              phone: phone || ''
+            },
+            players: playerPayload
+          }
+        });
+        if (adminAlertError) {
+          console.error('Admin alert email failed:', adminAlertError);
+        } else {
+          console.log('Admin alert email sent:', adminAlertData);
+        }
+      } catch (adminAlertErr) {
+        console.error('Admin alert email threw:', adminAlertErr);
+      }
     } catch (e) {
       console.error('Registration error:', e);
       alert('Something went wrong. Please try again or contact support.');
