@@ -961,7 +961,7 @@ body:not([data-role="admin"]) .btn.admin-only {
             <div class="table-wrap">
               <table>
                 <thead><tr>
-                  <th>Date & Time</th><th>Groups</th><th>Location</th><th>Checked In</th><th>Status</th><th></th>
+                  <th>Date & Time</th><th>Groups</th><th>Location</th><th>RSVP</th><th>Status</th><th></th>
                 </tr></thead>
                 <tbody id="practices-table"></tbody>
               </table>
@@ -3066,7 +3066,7 @@ function renderPractices(filter) {
       <td><div style="font-weight:500;">${fmtDate(p.date)}${seriesTag}</div><div style="font-size:11px;color:var(--text-secondary);">${fmtTime(p.start)} – ${fmtTime(p.end)}</div></td>
       <td>${p.groups.map(g=>`<span class="team-tag" style="background:var(--orange-light);color:var(--orange-mid);margin-right:3px;">${g}</span>`).join('')}</td>
       <td>${p.location}</td>
-      <td>${p.checkedIn.length} / ${state.players.filter(pl => p.groups.some(g => pl.team === g) && pl.active !== false).length}</td>
+      <td>${Object.values(p.rsvp || {}).filter(a => a === 'yes').length} / ${state.players.filter(pl => p.groups.some(g => pl.team === g) && pl.active !== false).length}</td>
       <td><span class="pill ${past ? 'pill-gray' : 'pill-green'}">${past ? 'Completed' : 'Upcoming'}</span></td>
       <td style="text-align:right;">
         ${isAdmin ? `<button class="btn btn-sm" onclick="editPractice('${p.id}')">Edit</button>
