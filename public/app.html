@@ -1480,6 +1480,19 @@ body:not([data-role="admin"]) .btn.admin-only {
   </div>
 </div>
 
+<!-- ===== GAME DETAIL MODAL (info-only, no RSVP) ===== -->
+<div class="modal-overlay" id="game-detail-modal">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header">
+      <span class="modal-title" id="game-detail-title">Game</span>
+      <button class="modal-close" onclick="closeModal('game-detail-modal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="game-detail-body"></div>
+    </div>
+  </div>
+</div>
+
 <!-- ===== FORGOT PASSWORD MODAL ===== -->
 <div class="modal-overlay" id="forgot-modal">
   <div class="modal" style="max-width:380px;">
@@ -5046,7 +5059,9 @@ function renderCalendar(containerId, mode) {
       const col = e.type === 'practice' ? 'var(--blue)' : 'var(--orange-mid)';
       const clickAttr = (isPlayer && e.type === 'practice')
         ? ' onclick="openCalEventModal(\''+e.id+'\',\''+e.type+'\')" style="cursor:pointer;'
-        : ' style="';
+        : (isCoachTeams && e.type === 'game')
+          ? ' onclick="openGameDetailModal(\''+e.id+'\')" style="cursor:pointer;'
+          : ' style="';
       evHtml += '<div'+clickAttr+'font-size:10px;padding:2px 4px;border-radius:3px;margin-bottom:2px;background:'+bg+';color:'+col+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-left:2px solid '+col+';" title="'+e.label+' — tap to answer">'+e.shortLabel+indicator+'</div>';
     });
     if (evs.length>3) evHtml += '<div style="font-size:10px;color:var(--text-secondary);">+'+(evs.length-3)+' more</div>';
@@ -5057,7 +5072,11 @@ function renderCalendar(containerId, mode) {
   }
   const remaining = (firstDay + daysInMonth) % 7;
   if (remaining > 0) { for (let i=0; i<(7-remaining); i++) cells += `<div style="min-height:72px;border-right:0.5px solid var(--gray-border);border-bottom:0.5px solid var(--gray-border);background:var(--gray-bg);"></div>`; }
-  const legendExtra = isPlayer ? '<span style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;"><span style="color:var(--teal-dark);">●</span> Going</span><span style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;"><span style="color:#A32D2D;">✗</span> Not going</span><span style="font-size:12px;color:var(--orange-mid);font-weight:500;margin-left:6px;">💡 Tap a practice to RSVP</span>' : '';
+  const legendExtra = isPlayer
+    ? '<span style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;"><span style="color:var(--teal-dark);">●</span> Going</span><span style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;"><span style="color:#A32D2D;">✗</span> Not going</span><span style="font-size:12px;color:var(--orange-mid);font-weight:500;margin-left:6px;">💡 Tap a practice to RSVP</span>'
+    : isCoachTeams
+      ? '<span style="font-size:12px;color:var(--orange-mid);font-weight:500;margin-left:6px;">💡 Tap a game for details</span>'
+      : '';
   html += cells + '</div></div><div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:10px;"><span style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;border-radius:2px;display:inline-block;background:var(--blue-light);border:1px solid var(--blue);"></span>Practice</span><span style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;border-radius:2px;display:inline-block;background:var(--orange-light);border:1px solid var(--orange-mid);"></span>Game</span>'+legendExtra+'</div>';
   container.innerHTML = html;
 }
@@ -5897,6 +5916,48 @@ showPage = function(id, navEl) {
 
 // ===== CALENDAR EVENT MODAL =====
 let _calEventId = null, _calEventType = null;
+
+// Info-only popup for tournament games on the coach calendar.
+// Reads game + parent tournament_team + tournament; pulls roster names from players.
+function openGameDetailModal(gameId) {
+  const g = state.tournamentGames.find(x => x.id === gameId);
+  if (!g) return;
+  const team = state.tournamentTeams.find(tm => tm.id === g.tournamentTeamId);
+  const tournament = team ? state.tournaments.find(t => t.id === team.tournamentId) : null;
+  const tnName = tournament ? tournament.name : 'Tournament';
+  const teamName = team ? team.name : '';
+
+  const timeStr = g.start
+    ? fmtTime(g.start) + (g.end ? ' – ' + fmtTime(g.end) : '')
+    : 'TBD';
+
+  const rosterIds = team && Array.isArray(team.playerIds) ? team.playerIds : [];
+  const rosterPlayers = rosterIds
+    .map(pid => state.players.find(p => p.id === pid))
+    .filter(p => p && p.active !== false)
+    .sort((a, b) => (a.last + a.first).localeCompare(b.last + b.first));
+  const rosterHtml = rosterPlayers.length
+    ? rosterPlayers.map(p => `<li style="font-size:13px;padding:2px 0;">${p.first} ${p.last}</li>`).join('')
+    : '<li style="font-size:12px;color:var(--text-secondary);font-style:italic;">No players on this roster.</li>';
+
+  const titleEl = document.getElementById('game-detail-title');
+  const bodyEl = document.getElementById('game-detail-body');
+  if (titleEl) titleEl.textContent = tnName + (teamName ? ' — ' + teamName : '');
+  if (bodyEl) {
+    bodyEl.innerHTML = `
+      <div style="background:var(--gray-bg);border-radius:var(--radius);padding:10px 12px;font-size:13px;line-height:1.7;margin-bottom:14px;">
+        <div>📅 <strong>${fmtDate(g.date)}</strong></div>
+        <div>🕐 ${timeStr}</div>
+        ${g.opponent ? `<div>⚔️ vs ${g.opponent}</div>` : ''}
+        ${g.location ? `<div>📍 ${g.location}</div>` : ''}
+        ${g.notes ? `<div style="margin-top:4px;color:var(--text-secondary);font-size:12px;">📝 ${g.notes}</div>` : ''}
+      </div>
+      <div style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">Roster (${rosterPlayers.length})</div>
+      <ul style="margin:0;padding-left:18px;">${rosterHtml}</ul>
+    `;
+  }
+  openModal('game-detail-modal');
+}
 
 function openCalEventModal(id, type) {
   _calEventId = id;
