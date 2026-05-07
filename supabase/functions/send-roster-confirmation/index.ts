@@ -76,7 +76,7 @@ serve(async (req) => {
 
     const { data: team, error: tmErr } = await sb
       .from("tournament_teams")
-      .select("id, name, coach_ids")
+      .select("id, name, coach_ids, player_ids")
       .eq("id", tournament_team_id)
       .single();
     if (tmErr || !team) {
@@ -153,6 +153,31 @@ serve(async (req) => {
 
     const dateRange = fmtDateRange(tournament.start_date, tournament.end_date);
 
+    // Snapshot the team roster once. Same content for every recipient.
+    const rosterPlayerIds: string[] = Array.isArray(team.player_ids) ? team.player_ids : [];
+    let rosterBlock = "";
+    if (rosterPlayerIds.length > 0) {
+      const { data: rosterPlayers, error: rosErr } = await sb
+        .from("players")
+        .select("id, first, last")
+        .in("id", rosterPlayerIds)
+        .not("active", "is", false);
+      if (rosErr) {
+        console.error("Roster lookup failed (omitting roster section):", rosErr);
+      } else if (rosterPlayers && rosterPlayers.length > 0) {
+        const sorted = rosterPlayers.slice().sort((a: any, b: any) => {
+          const la = (a.last || "").toLowerCase();
+          const lb = (b.last || "").toLowerCase();
+          if (la !== lb) return la < lb ? -1 : 1;
+          const fa = (a.first || "").toLowerCase();
+          const fb = (b.first || "").toLowerCase();
+          return fa < fb ? -1 : fa > fb ? 1 : 0;
+        });
+        rosterBlock = "\n\nRoster:\n" +
+          sorted.map((p: any) => `• ${p.first || ""} ${p.last || ""}`.trim()).join("\n");
+      }
+    }
+
     let sent = 0;
     let skipped = 0;
     const results: any[] = [];
@@ -169,7 +194,7 @@ serve(async (req) => {
       const subject = `${player.first} is rostered for ${tournament.name}`;
       const text = `Hi ${parent.first || "there"},
 
-${player.first} ${player.last} has been added to the ${team.name} roster for ${tournament.name} (${dateRange}).
+${player.first} ${player.last} has been added to the ${team.name} roster for ${tournament.name} (${dateRange}).${rosterBlock}
 
 Game schedule and details will be available in the 3Ball app under the Tourneys tab.
 
