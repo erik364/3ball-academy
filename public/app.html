@@ -3438,6 +3438,36 @@ function renderTournaments() {
     });
     const teamSummary = Object.keys(teamCounts).length ? Object.entries(teamCounts).map(([team,cnt])=>`<span style="font-size:11px;background:var(--teal-light);color:var(--teal-dark);border:1px solid #9FE1CB;border-radius:4px;padding:1px 6px;margin-right:3px;">${team}: ${cnt} ✓</span>`).join('') : '';
     const isAdmin = state.currentUser && state.currentUser.isAdmin;
+    // Compute the games visible to this viewer for this tournament:
+    //   admin → all games on this tournament
+    //   non-admin coach → games on tournament_teams where coach is assigned
+    let visibleTeamIds;
+    if (isAdmin) {
+      visibleTeamIds = state.tournamentTeams.filter(tm => tm.tournamentId === t.id).map(tm => tm.id);
+    } else if (state.currentCoach) {
+      visibleTeamIds = state.tournamentTeams
+        .filter(tm => tm.tournamentId === t.id && (tm.coachIds || []).includes(state.currentCoach.id))
+        .map(tm => tm.id);
+    } else {
+      visibleTeamIds = [];
+    }
+    const gamesForCard = state.tournamentGames
+      .filter(g => visibleTeamIds.includes(g.tournamentTeamId))
+      .sort((a, b) => (a.date || '').localeCompare(b.date || '') || (a.start || '').localeCompare(b.start || ''));
+    const teamById = new Map(state.tournamentTeams.map(tm => [tm.id, tm]));
+    const gamesBlock = gamesForCard.length === 0
+      ? `<div style="font-size:13px;margin-bottom:4px;color:var(--text-secondary);font-style:italic;">📍 Games not yet added</div>`
+      : `<div style="margin:6px 0 8px 0;border-top:1px solid var(--gray-border);padding-top:8px;">
+          <div style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">Games (${gamesForCard.length})</div>
+          ${gamesForCard.map(g => {
+            const tm = teamById.get(g.tournamentTeamId);
+            const teamLabel = tm ? tm.name : '';
+            const timeStr = g.start ? fmtTime(g.start) : 'TBD';
+            const opp = g.opponent ? ' vs ' + g.opponent : '';
+            const loc = g.location ? ' · 📍 ' + g.location : '';
+            return `<div style="font-size:12px;color:var(--text);padding:3px 0;">${teamLabel ? '<strong>' + teamLabel + '</strong> · ' : ''}${fmtDate(g.date)} · ${timeStr}${opp}${loc}</div>`;
+          }).join('')}
+        </div>`;
     return `<div class="panel" style="cursor:pointer;" onclick="openTournamentDetail('${t.id}')">
       <div style="padding:14px 16px;">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px;">
@@ -3447,7 +3477,7 @@ function renderTournaments() {
           </div>
           <span class="pill ${past ? 'pill-gray' : 'pill-orange'}">${past ? 'Past' : 'Upcoming'}</span>
         </div>
-        <div style="font-size:13px;margin-bottom:4px;color:var(--text-secondary);font-style:italic;">📍 Games not yet added</div>
+        ${gamesBlock}
         ${teamSummary ? `<div style="margin-bottom:8px;padding:6px 8px;background:var(--gray-bg);border-radius:6px;display:flex;flex-wrap:wrap;gap:3px;align-items:center;"><span style="font-size:10px;font-weight:600;color:var(--text-secondary);margin-right:4px;">Going:</span>${teamSummary}</div>` : ''}
         ${t.notes ? `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;border-top:1px solid var(--gray-border);padding-top:8px;">${t.notes}</div>` : ''}
         <div style="display:flex;gap:6px;margin-top:10px;border-top:1px solid var(--gray-border);padding-top:10px;" onclick="event.stopPropagation()">
