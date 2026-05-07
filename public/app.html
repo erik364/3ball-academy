@@ -1544,6 +1544,15 @@ body:not([data-role="admin"]) .btn.admin-only {
       <button class="modal-close" onclick="closeModal('practice-modal')">×</button>
     </div>
     <div class="modal-body">
+      <div id="p-series-edit-scope" class="form-group" style="display:none;background:var(--gray-bg);border-radius:6px;padding:10px 12px;">
+        <label class="form-label" style="margin-bottom:6px;">This practice is part of a series. What do you want to edit?</label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;margin-bottom:4px;">
+          <input type="radio" name="prac-edit-scope" value="this-only" checked onchange="updatePracticeNotifyOverrideNote()"> Edit this practice only
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+          <input type="radio" name="prac-edit-scope" value="this-and-future" onchange="updatePracticeNotifyOverrideNote()"> Edit this and all future practices in the series
+        </label>
+      </div>
       <div class="form-row">
         <div class="form-group"><label class="form-label">Date</label><input class="form-input" id="p-date" type="date"></div>
         <div class="form-group"><label class="form-label">Location</label><select class="form-select" id="p-location"><option value="">Select...</option></select></div>
@@ -1569,12 +1578,24 @@ body:not([data-role="admin"]) .btn.admin-only {
         <label class="form-label">Assigned Coaches</label>
         <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;" id="p-coaches"></div>
       </div>
+      <div id="p-recurrence" class="form-group" style="margin-top:8px;background:var(--gray-bg);border-radius:6px;padding:10px 12px;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;">
+          <input type="checkbox" id="p-repeat-weekly" onchange="document.getElementById('p-repeat-end-wrap').style.display = this.checked ? '' : 'none'; updatePracticeNotifyOverrideNote();">
+          <span>Repeat weekly</span>
+        </label>
+        <div id="p-repeat-end-wrap" style="display:none;margin-top:8px;">
+          <label class="form-label">End date</label>
+          <input class="form-input" id="p-repeat-end" type="date" style="max-width:200px;">
+          <div style="font-size:11px;color:var(--text-secondary);margin-top:4px;">Weekly occurrences will be created from the start date through this date (inclusive).</div>
+        </div>
+      </div>
       <div class="form-row" style="margin-top:16px;">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
           <input type="checkbox" id="prac-notify" />
           <span>Notify parents by email</span>
         </label>
       </div>
+      <div id="p-notify-override-note" style="display:none;font-size:11px;color:var(--text-secondary);font-style:italic;margin-top:6px;"></div>
     </div>
     <div class="modal-footer">
       <button class="btn" onclick="closeModal('practice-modal')">Cancel</button>
@@ -2113,6 +2134,8 @@ async function loadCoaches() {
         groups: row.groups || [],
         notes: row.notes || '',
         coachIds: row.coach_ids || [],
+        seriesId: row.series_id || null,
+        isSeriesException: !!row.is_series_exception,
         checkedIn: [],
         rsvp: {}
       };
@@ -3036,8 +3059,11 @@ function renderPractices(filter) {
   if (!list.length) { tb.innerHTML = '<tr><td colspan="6"><div class="empty"><div class="empty-icon">📅</div><div class="empty-text">No practices found</div></div></td></tr>'; return; }
   tb.innerHTML = list.map(p => {
     const past = isPast(p.date);
+    const seriesTag = p.seriesId
+      ? `<span title="Part of a weekly series" style="display:inline-block;font-size:10px;font-weight:600;color:var(--text-secondary);background:var(--gray-bg);border:1px solid var(--gray-border);border-radius:4px;padding:1px 5px;margin-left:6px;letter-spacing:0.04em;">↻ Series${p.isSeriesException ? ' · edited' : ''}</span>`
+      : '';
     return `<tr>
-      <td><div style="font-weight:500;">${fmtDate(p.date)}</div><div style="font-size:11px;color:var(--text-secondary);">${fmtTime(p.start)} – ${fmtTime(p.end)}</div></td>
+      <td><div style="font-weight:500;">${fmtDate(p.date)}${seriesTag}</div><div style="font-size:11px;color:var(--text-secondary);">${fmtTime(p.start)} – ${fmtTime(p.end)}</div></td>
       <td>${p.groups.map(g=>`<span class="team-tag" style="background:var(--orange-light);color:var(--orange-mid);margin-right:3px;">${g}</span>`).join('')}</td>
       <td>${p.location}</td>
       <td>${p.checkedIn.length} / ${state.players.filter(pl => p.groups.some(g => pl.team === g) && pl.active !== false).length}</td>
@@ -3072,22 +3098,100 @@ function openPracticeModal(id) {
       <input type="checkbox" value="${c.id}" ${assigned.includes(c.id)?'checked':''} style="accent-color:var(--green-dark);"> ${c.first} ${c.last}
     </label>`).join('');
   document.getElementById('prac-notify').checked = !id;
+
+  // Series controls
+  const isSeriesEdit = !!(p && p.seriesId);
+  document.getElementById('p-series-edit-scope').style.display = isSeriesEdit ? '' : 'none';
+  if (isSeriesEdit) {
+    const radios = document.querySelectorAll('input[name="prac-edit-scope"]');
+    radios.forEach(r => { r.checked = (r.value === 'this-only'); });
+  }
+  // Recurrence checkbox + end date — only meaningful for new practices
+  document.getElementById('p-recurrence').style.display = id ? 'none' : '';
+  document.getElementById('p-repeat-weekly').checked = false;
+  document.getElementById('p-repeat-end-wrap').style.display = 'none';
+  document.getElementById('p-repeat-end').value = '';
+
+  updatePracticeNotifyOverrideNote();
   openModal('practice-modal');
+}
+
+function updatePracticeNotifyOverrideNote() {
+  // Show admin a small note when the notify checkbox is overridden by series rules.
+  const note = document.getElementById('p-notify-override-note');
+  const notifyEl = document.getElementById('prac-notify');
+  if (!note || !notifyEl) return;
+  const editingId = state.editingId;
+  const editingPractice = editingId ? state.practices.find(x => x.id === editingId) : null;
+  const isSeriesEdit = !!(editingPractice && editingPractice.seriesId);
+  const repeatChecked = document.getElementById('p-repeat-weekly').checked;
+  let msg = '';
+  if (!editingId && repeatChecked) {
+    msg = 'Series creation always sends one summary email; checkbox is ignored.';
+  } else if (isSeriesEdit) {
+    const scope = document.querySelector('input[name="prac-edit-scope"]:checked');
+    if (scope && scope.value === 'this-only') {
+      msg = '"This practice only" edits never send email; checkbox is ignored.';
+    } else if (scope && scope.value === 'this-and-future') {
+      msg = '"This and all future" edits always send one summary email; checkbox is ignored.';
+    }
+  }
+  note.textContent = msg;
+  note.style.display = msg ? '' : 'none';
 }
 
 function editPractice(id) { openPracticeModal(id); }
 
+function dayOfWeekName(iso) {
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+}
+function fmtTimeAmPm(hhmm) {
+  if (!hhmm) return '';
+  const [h, m] = hhmm.split(':').map(Number);
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${String(m).padStart(2,'0')} ${ampm}`;
+}
+function isoAddDays(iso, days) {
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return dt.toISOString().slice(0, 10);
+}
+function buildSeriesEditChangesSummary(prev, next) {
+  const parts = [];
+  if (prev.start_time !== next.start_time || prev.end_time !== next.end_time) {
+    parts.push(`Time changed from ${fmtTimeAmPm((prev.start_time||'').slice(0,5))}–${fmtTimeAmPm((prev.end_time||'').slice(0,5))} to ${fmtTimeAmPm(next.start_time)}–${fmtTimeAmPm(next.end_time)}`);
+  }
+  if (prev.location !== next.location) {
+    parts.push(`Location changed to ${next.location || 'TBD'}`);
+  }
+  const prevGroups = (prev.groups || []).slice().sort().join(',');
+  const nextGroups = (next.groups || []).slice().sort().join(',');
+  if (prevGroups !== nextGroups) {
+    parts.push(`Teams updated to ${(next.groups || []).join(', ')}`);
+  }
+  if ((prev.notes || '') !== (next.notes || '')) {
+    parts.push(`Notes updated`);
+  }
+  return parts.join('\n');
+}
+
 async function savePractice() {
   const groups = [...document.querySelectorAll('#p-groups input:checked')].map(c=>c.value);
-  if (!document.getElementById('p-date').value || !groups.length || !document.getElementById('p-location').value) {
+  const dateVal = document.getElementById('p-date').value;
+  const locationVal = document.getElementById('p-location').value;
+  if (!dateVal || !groups.length || !locationVal) {
     alert('Please fill in date, location, and at least one group.'); return;
   }
   const coachIds = [...document.querySelectorAll('#p-coaches input[type=checkbox]:checked')].map(c=>c.value);
   const row = {
-    date: document.getElementById('p-date').value,
+    date: dateVal,
     start_time: document.getElementById('p-start').value,
     end_time: document.getElementById('p-end').value,
-    location: document.getElementById('p-location').value,
+    location: locationVal,
     groups: groups,
     notes: document.getElementById('p-notes').value,
     coach_ids: coachIds
@@ -3096,8 +3200,171 @@ async function savePractice() {
   if (!sb) { alert('Auth not ready.'); return; }
 
   const isNew = !state.editingId;
-  const notify = document.getElementById('prac-notify').checked;
+  const notifyChecked = document.getElementById('prac-notify').checked;
+  const editingPractice = state.editingId ? state.practices.find(x => x.id === state.editingId) : null;
+  const isSeriesEdit = !!(editingPractice && editingPractice.seriesId);
+  const repeatWeekly = isNew && document.getElementById('p-repeat-weekly').checked;
+  const editScopeEl = document.querySelector('input[name="prac-edit-scope"]:checked');
+  const editScope = editScopeEl ? editScopeEl.value : 'this-only';
 
+  // ---------- SERIES CREATE ----------
+  if (repeatWeekly) {
+    const endDateVal = document.getElementById('p-repeat-end').value;
+    if (!endDateVal) { alert('Please pick an end date for the recurrence.'); return; }
+    if (endDateVal < dateVal) { alert('End date must be on or after the start date.'); return; }
+    const seriesId = crypto.randomUUID();
+    const dates = [];
+    for (let d = dateVal; d <= endDateVal; d = isoAddDays(d, 7)) dates.push(d);
+    const rows = dates.map(d => ({
+      ...row,
+      date: d,
+      series_id: seriesId,
+      is_series_exception: false
+    }));
+    try {
+      const { data, error } = await sb.from('practices').insert(rows).select();
+      if (error) { alert('Could not save: ' + error.message); return; }
+      const created = data || [];
+      closeModal('practice-modal');
+      await loadSchedule();
+      renderPractices(practiceFilter);
+      toast(`Created ${created.length} practices in series.`);
+
+      // Always fire one summary email per spec
+      try {
+        const teamName = (row.groups[0] || '').toString();
+        const { data: emailData, error: emailErr } = await sb.functions.invoke('send-practice-scheduled', {
+          body: {
+            mode: 'series_create',
+            // any practice_id in the series works for recipient lookup (same teams)
+            practice_id: created[0] && created[0].id,
+            series_create: {
+              team_name: teamName,
+              day_of_week: dayOfWeekName(dateVal),
+              time: `${fmtTimeAmPm(row.start_time)}–${fmtTimeAmPm(row.end_time)}`,
+              location: row.location,
+              start_date: dateVal,
+              end_date: endDateVal,
+              occurrence_count: created.length
+            }
+          }
+        });
+        if (emailErr) {
+          console.error('Series-create email failed:', emailErr);
+          toast('Series saved — but email failed. See console.');
+        } else {
+          console.log('Series-create email sent:', emailData);
+          toast(`Email sent to ${emailData?.sent ?? 0} parents.`);
+        }
+      } catch (e) {
+        console.error('Series-create email threw:', e);
+        toast('Series saved — email error. See console.');
+      }
+    } catch (e) {
+      console.error('savePractice (series create) threw:', e);
+      alert('Could not save the series.');
+    }
+    return;
+  }
+
+  // ---------- SERIES EDIT: "this practice only" ----------
+  if (isSeriesEdit && editScope === 'this-only') {
+    try {
+      const updateRow = { ...row, is_series_exception: true };
+      const { error } = await sb.from('practices').update(updateRow).eq('id', state.editingId);
+      if (error) { alert('Could not save: ' + error.message); return; }
+      closeModal('practice-modal');
+      await loadSchedule();
+      renderPractices(practiceFilter);
+      toast('Practice updated (this one only).');
+    } catch (e) {
+      console.error('savePractice (this-only edit) threw:', e);
+      alert('Could not save the practice.');
+    }
+    return;
+  }
+
+  // ---------- SERIES EDIT: "this and all future" ----------
+  if (isSeriesEdit && editScope === 'this-and-future') {
+    try {
+      // Snapshot prev values from the practice being edited (for diff summary)
+      const prevSnapshot = {
+        start_time: editingPractice.start ? editingPractice.start + ':00' : '',
+        end_time: editingPractice.end ? editingPractice.end + ':00' : '',
+        location: editingPractice.location || '',
+        groups: editingPractice.groups || [],
+        notes: editingPractice.notes || ''
+      };
+      // Apply update only to non-exception future occurrences (and the current row).
+      // NOTE: date is intentionally NOT propagated — series mode keeps each
+      // occurrence on its existing date.
+      const propagateRow = {
+        start_time: row.start_time,
+        end_time: row.end_time,
+        location: row.location,
+        groups: row.groups,
+        notes: row.notes,
+        coach_ids: row.coach_ids
+      };
+      const { error } = await sb.from('practices')
+        .update(propagateRow)
+        .eq('series_id', editingPractice.seriesId)
+        .gte('date', editingPractice.date)
+        .eq('is_series_exception', false);
+      if (error) { alert('Could not save: ' + error.message); return; }
+      closeModal('practice-modal');
+      await loadSchedule();
+      renderPractices(practiceFilter);
+
+      const updatedCount = state.practices.filter(p =>
+        p.seriesId === editingPractice.seriesId &&
+        p.date >= editingPractice.date &&
+        !p.isSeriesException
+      ).length;
+      toast(`Updated ${updatedCount} practices in series.`);
+
+      // Always fire one summary email per spec
+      const changes = buildSeriesEditChangesSummary(prevSnapshot, propagateRow);
+      if (!changes) {
+        // No parent-visible diff — skip email
+        toast('No parent-visible changes; email skipped.');
+        return;
+      }
+      try {
+        const teamName = (row.groups[0] || '').toString();
+        const { data: emailData, error: emailErr } = await sb.functions.invoke('send-practice-scheduled', {
+          body: {
+            mode: 'series_edit',
+            practice_id: state.editingId,
+            series_edit: {
+              team_name: teamName,
+              day_of_week: dayOfWeekName(editingPractice.date),
+              time: `${fmtTimeAmPm(row.start_time)}–${fmtTimeAmPm(row.end_time)}`,
+              location: row.location,
+              effective_date: editingPractice.date,
+              changes_summary: changes
+            }
+          }
+        });
+        if (emailErr) {
+          console.error('Series-edit email failed:', emailErr);
+          toast('Updated — but email failed. See console.');
+        } else {
+          console.log('Series-edit email sent:', emailData);
+          toast(`Email sent to ${emailData?.sent ?? 0} parents.`);
+        }
+      } catch (e) {
+        console.error('Series-edit email threw:', e);
+        toast('Updated — email error. See console.');
+      }
+    } catch (e) {
+      console.error('savePractice (this-and-future edit) threw:', e);
+      alert('Could not save the series edit.');
+    }
+    return;
+  }
+
+  // ---------- ONE-OFF CREATE OR EDIT (existing behavior, checkbox-gated email) ----------
   try {
     let practiceId = state.editingId;
     if (state.editingId) {
@@ -3105,7 +3372,8 @@ async function savePractice() {
       if (error) { alert('Could not save: ' + error.message); return; }
       toast('Practice updated!');
     } else {
-      const { data, error } = await sb.from('practices').insert(row).select();
+      const insertRow = { ...row, series_id: null, is_series_exception: false };
+      const { data, error } = await sb.from('practices').insert(insertRow).select();
       if (error) { alert('Could not save: ' + error.message); return; }
       practiceId = data && data[0] && data[0].id;
       toast('Practice added!');
@@ -3114,10 +3382,10 @@ async function savePractice() {
     await loadSchedule();
     renderPractices(practiceFilter);
 
-    if (notify && practiceId) {
+    if (notifyChecked && practiceId) {
       try {
         const { data: emailData, error: emailErr } = await sb.functions.invoke('send-practice-scheduled', {
-          body: { practice_id: practiceId }
+          body: { mode: 'one_off', practice_id: practiceId }
         });
         if (emailErr) {
           console.error('Practice notification email failed:', emailErr);
@@ -3138,8 +3406,36 @@ async function savePractice() {
 }
 
 async function deletePractice(id) {
-  if (!confirm('Delete this practice?')) return;
   if (!sb) return;
+  const p = state.practices.find(x => x.id === id);
+  if (!p) return;
+
+  if (p.seriesId) {
+    const choice = prompt('This practice is part of a weekly series.\n\nType "this" to delete only this practice, or "future" to delete this and all future practices in the series.\n\n(Leave blank to cancel.)');
+    if (!choice) return;
+    const norm = choice.trim().toLowerCase();
+    if (norm !== 'this' && norm !== 'future') { alert('Cancelled.'); return; }
+
+    if (norm === 'this') {
+      const { error } = await sb.from('practices').delete().eq('id', id);
+      if (error) { alert('Could not delete: ' + error.message); return; }
+      await loadSchedule();
+      renderPractices(practiceFilter);
+      toast('Practice deleted.');
+    } else {
+      const { error } = await sb.from('practices')
+        .delete()
+        .eq('series_id', p.seriesId)
+        .gte('date', p.date);
+      if (error) { alert('Could not delete: ' + error.message); return; }
+      await loadSchedule();
+      renderPractices(practiceFilter);
+      toast('Practice and all future series occurrences deleted.');
+    }
+    return;
+  }
+
+  if (!confirm('Delete this practice?')) return;
   const { error } = await sb.from('practices').delete().eq('id', id);
   if (error) { alert('Could not delete: ' + error.message); return; }
   await loadSchedule();
