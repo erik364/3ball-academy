@@ -1217,16 +1217,7 @@ body:not([data-role="admin"]) .btn.admin-only {
         <div class="page" id="page-player-calendar">
           <div class="section-header">
             <span class="section-title">Calendar</span>
-            <div style="display:flex;gap:8px;">
-              <button class="btn btn-sm" onclick="subscribeCalendar('apple', false)" style="display:flex;align-items:center;gap:6px;">
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 0C3.13 0 0 3.13 0 7s3.13 7 7 7 7-3.13 7-7-3.13-7-7-7zm.7 10.5H6.3V6.3h1.4v4.2zm0-5.6H6.3V3.5h1.4v1.4z" fill="currentColor"/></svg>
-                Subscribe
-              </button>
-              <button class="btn btn-sm btn-primary" onclick="downloadIcs(false)" style="display:flex;align-items:center;gap:6px;">
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 8.5L2 4.5h2.5V1h3v3.5H10L6 8.5zM1 11h10v-1.5H1V11z" fill="currentColor"/></svg>
-                Download .ics
-              </button>
-            </div>
+            <div id="player-calendar-subscribe-buttons" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;"></div>
           </div>
           <div id="player-calendar-container"></div>
         </div>
@@ -1235,16 +1226,10 @@ body:not([data-role="admin"]) .btn.admin-only {
         <div class="page" id="page-calendar">
           <div class="section-header">
             <span class="section-title">Master Calendar</span>
-            <div style="display:flex;gap:8px;">
-              <button class="btn btn-sm" onclick="subscribeCalendar('apple', true)" style="display:flex;align-items:center;gap:6px;">
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 0C3.13 0 0 3.13 0 7s3.13 7 7 7 7-3.13 7-7-3.13-7-7-7zm.7 10.5H6.3V6.3h1.4v4.2zm0-5.6H6.3V3.5h1.4v1.4z" fill="currentColor"/></svg>
-                Subscribe
-              </button>
-              <button class="btn btn-sm btn-primary" onclick="downloadIcs(true)" style="display:flex;align-items:center;gap:6px;">
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 8.5L2 4.5h2.5V1h3v3.5H10L6 8.5zM1 11h10v-1.5H1V11z" fill="currentColor"/></svg>
-                Download .ics
-              </button>
-            </div>
+            <button class="btn btn-sm" onclick="subscribeUserCalendar()" style="display:flex;align-items:center;gap:6px;">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 0C3.13 0 0 3.13 0 7s3.13 7 7 7 7-3.13 7-7-3.13-7-7-7zm.7 10.5H6.3V6.3h1.4v4.2zm0-5.6H6.3V3.5h1.4v1.4z" fill="currentColor"/></svg>
+              Subscribe
+            </button>
           </div>
           <div id="coach-calendar-container"></div>
         </div>
@@ -1303,16 +1288,10 @@ body:not([data-role="admin"]) .btn.admin-only {
         <div class="page" id="page-coach-calendar">
           <div class="section-header">
             <span class="section-title">My Calendar</span>
-            <div style="display:flex;gap:8px;">
-              <button class="btn btn-sm" onclick="subscribeCalendar('apple', false)" style="display:flex;align-items:center;gap:6px;">
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 0C3.13 0 0 3.13 0 7s3.13 7 7 7 7-3.13 7-7-3.13-7-7-7zm.7 10.5H6.3V6.3h1.4v4.2zm0-5.6H6.3V3.5h1.4v1.4z" fill="currentColor"/></svg>
-                Subscribe
-              </button>
-              <button class="btn btn-sm btn-primary" onclick="downloadIcs(false)" style="display:flex;align-items:center;gap:6px;">
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 8.5L2 4.5h2.5V1h3v3.5H10L6 8.5zM1 11h10v-1.5H1V11z" fill="currentColor"/></svg>
-                Download .ics
-              </button>
-            </div>
+            <button class="btn btn-sm" onclick="subscribeUserCalendar()" style="display:flex;align-items:center;gap:6px;">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 0C3.13 0 0 3.13 0 7s3.13 7 7 7 7-3.13 7-7-3.13-7-7-7zm.7 10.5H6.3V6.3h1.4v4.2zm0-5.6H6.3V3.5h1.4v1.4z" fill="currentColor"/></svg>
+              Subscribe
+            </button>
           </div>
           <div id="coach-only-calendar-container"></div>
         </div>
@@ -1404,31 +1383,27 @@ body:not([data-role="admin"]) .btn.admin-only {
 
 <!-- ===== SUBSCRIBE CALENDAR MODAL ===== -->
 <div class="modal-overlay" id="subscribe-modal">
-  <div class="modal" style="max-width:420px;">
+  <div class="modal" style="max-width:460px;">
     <div class="modal-header">
-      <span class="modal-title">Subscribe to Calendar</span>
+      <span class="modal-title" id="subscribe-modal-title">Subscribe to Calendar</span>
       <button class="modal-close" onclick="closeModal('subscribe-modal')">×</button>
     </div>
     <div class="modal-body">
-      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;">Add 3Ball Academy events to your calendar app so they stay automatically in sync.</p>
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;" id="subscribe-modal-intro">Subscribe and your calendar app will stay in sync automatically.</p>
 
       <!-- Apple Calendar -->
-      <div style="border:1px solid var(--gray-border);border-radius:var(--radius-lg);padding:14px 16px;margin-bottom:10px;">
+      <div style="border:1px solid var(--gray-border);border-radius:var(--radius-lg);padding:14px 16px;margin-bottom:12px;">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
           <div style="width:34px;height:34px;border-radius:8px;background:#000;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
             <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M13.5 1C13.5 1 14 4 11.5 5.5C9 7 8 5 8 5C8 5 7.5 2 10 1C10 1 11.5 0.5 13.5 1Z" fill="white"/><path d="M4 13.5C4 17 6.5 19 10 19C13.5 19 16 17 16 13.5C16 10 14 7 10 7C6 7 4 10 4 13.5Z" fill="white"/></svg>
           </div>
           <div>
             <div style="font-size:14px;font-weight:600;color:var(--text);">Apple Calendar</div>
-            <div style="font-size:11px;color:var(--text-secondary);">iPhone, iPad, Mac</div>
+            <div style="font-size:11px;color:var(--text-secondary);">iPhone, iPad, Mac — one tap</div>
           </div>
         </div>
-        <ol style="font-size:12px;color:var(--text-secondary);padding-left:18px;line-height:1.8;margin-bottom:10px;">
-          <li>Click <strong>Download .ics</strong> below</li>
-          <li>Open the downloaded file — Calendar opens automatically</li>
-          <li>Click <strong>Subscribe</strong> when prompted</li>
-        </ol>
-        <button class="btn btn-primary" style="width:100%;" onclick="closeModal('subscribe-modal');downloadIcs(window._subIsCoach)">Download .ics for Apple Calendar</button>
+        <a id="subscribe-webcal-link" href="#" style="display:block;background:#000;color:#fff;text-align:center;padding:10px;border-radius:8px;text-decoration:none;font-size:13px;font-weight:600;margin-bottom:8px;">Add to Apple Calendar</a>
+        <button type="button" class="btn btn-sm" style="width:100%;" onclick="copySubscribeUrl('webcal')">Copy webcal:// URL</button>
       </div>
 
       <!-- Google Calendar -->
@@ -1442,16 +1417,15 @@ body:not([data-role="admin"]) .btn.admin-only {
             <div style="font-size:11px;color:var(--text-secondary);">Android, web, Gmail</div>
           </div>
         </div>
-        <ol style="font-size:12px;color:var(--text-secondary);padding-left:18px;line-height:1.8;margin-bottom:10px;">
-          <li>Click <strong>Download .ics</strong> below</li>
-          <li>Go to <strong>calendar.google.com</strong></li>
-          <li>Click <strong>+</strong> next to "Other calendars" → <strong>Import</strong></li>
-          <li>Select the downloaded file and click <strong>Import</strong></li>
+        <ol style="font-size:12px;color:var(--text-secondary);padding-left:18px;line-height:1.7;margin:0 0 8px 0;">
+          <li>Copy the URL below</li>
+          <li>Open <strong>calendar.google.com</strong></li>
+          <li>Click <strong>+</strong> next to "Other calendars" → <strong>From URL</strong> → paste → <strong>Add calendar</strong></li>
         </ol>
-        <button class="btn btn-primary" style="width:100%;" onclick="closeModal('subscribe-modal');downloadIcs(window._subIsCoach)">Download .ics for Google Calendar</button>
+        <button type="button" class="btn btn-sm btn-primary" style="width:100%;" onclick="copySubscribeUrl('https')">Copy https:// URL</button>
       </div>
 
-      <p style="font-size:11px;color:var(--gray-mid);margin-top:12px;text-align:center;">The .ics file contains all current events. Re-download periodically to get new events.</p>
+      <p style="font-size:11px;color:var(--gray-mid);margin-top:14px;text-align:center;line-height:1.5;">Your calendar will update automatically. Apple usually refreshes every few hours; Google can take up to a day.</p>
     </div>
   </div>
 </div>
@@ -1852,7 +1826,7 @@ function showPage(id, navEl) {
   if (id === 'settings') renderSettings();
   if (id === 'player-home') renderPlayerHome();
   if (id === 'player-schedule') renderPlayerScheduleFilter(currentSchedFilter);
-  if (id === 'player-calendar') renderCalendar('player-calendar-container', false);
+  if (id === 'player-calendar') { renderCalendar('player-calendar-container', false); renderPlayerCalendarSubscribeButtons(); }
   if (id === 'calendar') renderCalendar('coach-calendar-container', true);
   if (id === 'coach-calendar') renderCalendar('coach-only-calendar-container', 'coach-teams');
   if (id === 'player-tournaments') renderPlayerTournaments();
@@ -2045,7 +2019,8 @@ async function loadPlayers() {
         parentId: row.parent_id,
         waiver: !!row.waiver_signed,
         active: row.active !== false,
-        paidMonths: row.paid_months || []
+        paidMonths: row.paid_months || [],
+        calendarToken: row.calendar_token || null
       };
     });
     state.parents.forEach(function(p) {
@@ -6129,7 +6104,7 @@ function switchPlayer(playerId) {
   const pageId = activePageEl ? activePageEl.id.replace(/^page-/, '') : 'player-home';
   if (pageId === 'player-home') renderPlayerHome();
   else if (pageId === 'player-schedule') renderPlayerScheduleFilter(currentSchedFilter);
-  else if (pageId === 'player-calendar') renderCalendar('player-calendar-container', false);
+  else if (pageId === 'player-calendar') { renderCalendar('player-calendar-container', false); renderPlayerCalendarSubscribeButtons(); }
   else if (pageId === 'player-tournaments') renderPlayerTournaments();
   else if (pageId === 'parent-account') renderParentAccount();
   toast('Now viewing ' + p.first + "'s account");
@@ -6435,91 +6410,97 @@ function openMobileMoreMenu() {
   openModal('mobile-more-modal');
 }
 
-// ===== CALENDAR EXPORT =====
-function subscribeCalendar(type, isAdmin) {
-  window._subIsCoach = isAdmin; // for legacy modal
-  // Open subscribe modal if it exists, otherwise just download .ics
-  const modal = document.getElementById('subscribe-modal');
-  if (modal) {
-    openModal('subscribe-modal');
+// ===== CALENDAR SUBSCRIPTION =====
+const CALENDAR_FEED_BASE = 'aqrysacrycvkjwcbggwj.supabase.co/functions/v1/calendar-feed';
+
+function buildSubscribeUrls(token) {
+  const tail = '/functions/v1/calendar-feed?token=' + encodeURIComponent(token);
+  const host = 'aqrysacrycvkjwcbggwj.supabase.co';
+  return {
+    https: 'https://' + host + tail,
+    webcal: 'webcal://' + host + tail,
+  };
+}
+
+function openSubscribeModalForUrls(title, urls, intro) {
+  document.getElementById('subscribe-modal-title').textContent = title;
+  if (intro) document.getElementById('subscribe-modal-intro').textContent = intro;
+  document.getElementById('subscribe-webcal-link').href = urls.webcal;
+  window._subUrls = urls;
+  openModal('subscribe-modal');
+}
+
+function copySubscribeUrl(which) {
+  const urls = window._subUrls;
+  if (!urls) return;
+  const url = which === 'webcal' ? urls.webcal : urls.https;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(
+      () => toast('URL copied to clipboard'),
+      () => toast('Copy failed — long-press the link to copy')
+    );
   } else {
-    downloadIcs(isAdmin);
+    // Fallback: prompt with selectable text
+    window.prompt('Copy this URL:', url);
   }
 }
 
-function downloadIcs(isAdmin) {
-  // Determine which events to include based on role
-  let practices, tournaments;
-  if (isAdmin) {
-    // Admin sees all events
-    practices = state.practices;
-    tournaments = state.tournaments;
-  } else if (state.currentCoach && !state.currentCoach.isAdmin) {
-    // Non-admin coach: filter by their teams
-    const teams = state.currentCoach.teams || [];
-    practices = state.practices.filter(p => p.groups.some(g => teams.includes(g)));
-    tournaments = state.tournaments.filter(t => t.groups.some(g => teams.includes(g)) || !t.groups.length);
-  } else if (state.currentUser) {
-    // Player/parent: filter by player's team
-    const team = state.currentUser.team;
-    practices = state.practices.filter(p => p.groups.includes(team));
-    tournaments = state.tournaments.filter(t => t.groups.includes(team) || !t.groups.length);
-  } else {
-    practices = []; tournaments = [];
-  }
+function subscribePlayerCalendar(playerId) {
+  const player = state.players.find(p => p.id === playerId);
+  if (!player) { alert('Player not found.'); return; }
+  if (!player.calendarToken) { alert('No subscription token for this player. Reload the page and try again.'); return; }
+  openSubscribeModalForUrls(
+    'Subscribe to ' + player.first + "'s Calendar",
+    buildSubscribeUrls(player.calendarToken),
+    'Subscribe and ' + player.first + "'s practices, tournaments, and games will stay in sync automatically."
+  );
+}
 
-  // Build .ics content
-  const pad = n => String(n).padStart(2, '0');
-  const fmt = (date, time) => {
-    if (time) {
-      const [h, m] = time.split(':');
-      return date.replace(/-/g, '') + 'T' + pad(h) + pad(m) + '00';
+async function subscribeUserCalendar() {
+  if (!sb) { alert('Auth not ready.'); return; }
+  // Determine which user (coach or admin) is signed in.
+  const u = state.currentCoach;
+  if (!u || !u.id) { alert('Not signed in as a coach/admin.'); return; }
+  try {
+    // Ensure a calendar_tokens row exists for this user. RLS lets users
+    // insert/select their own row; if a row already exists, ignore the conflict.
+    await sb.from('calendar_tokens').insert({ user_id: u.id }).then(() => {});
+    const { data, error } = await sb
+      .from('calendar_tokens')
+      .select('token')
+      .eq('user_id', u.id)
+      .maybeSingle();
+    if (error || !data || !data.token) {
+      console.error('subscribeUserCalendar token fetch error:', error);
+      alert('Could not load your subscription URL. See console.');
+      return;
     }
-    return date.replace(/-/g, '');
-  };
+    const title = u.isAdmin ? 'Subscribe to the Master Calendar' : 'Subscribe to My Calendar';
+    openSubscribeModalForUrls(
+      title,
+      buildSubscribeUrls(data.token),
+      'Subscribe and your calendar will stay in sync automatically.'
+    );
+  } catch (e) {
+    console.error('subscribeUserCalendar threw:', e);
+    alert('Subscription error. See console.');
+  }
+}
 
-  let ics = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//3Ball Academy//EN\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\n';
-  ics += 'X-WR-CALNAME:3Ball Academy\r\n';
-
-  practices.forEach(p => {
-    ics += 'BEGIN:VEVENT\r\n';
-    ics += 'UID:practice-' + p.id + '@3ballacademy\r\n';
-    ics += 'DTSTART:' + fmt(p.date, p.start) + '\r\n';
-    ics += 'DTEND:' + fmt(p.date, p.end) + '\r\n';
-    ics += 'SUMMARY:Practice — ' + p.groups.join(', ') + '\r\n';
-    ics += 'LOCATION:' + (p.location || '') + '\r\n';
-    if (p.notes) ics += 'DESCRIPTION:' + p.notes.replace(/\n/g, '\\n') + '\r\n';
-    ics += 'END:VEVENT\r\n';
-  });
-
-  tournaments.forEach(t => {
-    ics += 'BEGIN:VEVENT\r\n';
-    ics += 'UID:tournament-' + t.id + '@3ballacademy\r\n';
-    ics += 'DTSTART;VALUE=DATE:' + fmt(t.startDate) + '\r\n';
-    // .ics end-date is exclusive, so add 1 day
-    const endDate = new Date(t.endDate + 'T00:00:00');
-    endDate.setDate(endDate.getDate() + 1);
-    const endStr = endDate.getFullYear() + pad(endDate.getMonth()+1) + pad(endDate.getDate());
-    ics += 'DTEND;VALUE=DATE:' + endStr + '\r\n';
-    ics += 'SUMMARY:🏆 ' + t.name + '\r\n';
-    ics += 'LOCATION:' + (t.location || '') + (t.address ? ', ' + t.address : '') + '\r\n';
-    if (t.notes) ics += 'DESCRIPTION:' + t.notes.replace(/\n/g, '\\n') + '\r\n';
-    ics += 'END:VEVENT\r\n';
-  });
-
-  ics += 'END:VCALENDAR\r\n';
-
-  // Trigger download
-  const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = '3ball-academy.ics';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-  toast('Calendar downloaded! 📆');
+function renderPlayerCalendarSubscribeButtons() {
+  const container = document.getElementById('player-calendar-subscribe-buttons');
+  if (!container || !state.currentParent) return;
+  const myKids = state.players.filter(p => p.parentId === state.currentParent.id && p.active !== false);
+  if (!myKids.length) {
+    container.innerHTML = '<div style="font-size:12px;color:var(--text-secondary);">Add a player to enable calendar subscriptions.</div>';
+    return;
+  }
+  container.innerHTML = myKids.map(k => `
+    <button class="btn btn-sm" onclick="subscribePlayerCalendar('${k.id}')" style="display:flex;align-items:center;gap:6px;">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 0C3.13 0 0 3.13 0 7s3.13 7 7 7 7-3.13 7-7-3.13-7-7-7zm.7 10.5H6.3V6.3h1.4v4.2zm0-5.6H6.3V3.5h1.4v1.4z" fill="currentColor"/></svg>
+      Subscribe to ${k.first}'s Calendar
+    </button>
+  `).join('');
 }
 
 // ===== INIT =====
