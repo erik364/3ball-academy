@@ -49,13 +49,9 @@ function fmtTime(t: string): string {
   return `${h12}:${String(mm).padStart(2, "0")} ${ampm}`;
 }
 
-function buildHtml(args: {
-  parentFirst: string;
-  playerFirst: string;
-  teamName: string;
-  dateLong: string;
-  timeRange: string;
-  location: string;
+function buildOneOffHtml(args: {
+  parentFirst: string; playerFirst: string; teamName: string;
+  dateLong: string; timeRange: string; location: string;
 }): string {
   const { parentFirst, playerFirst, teamName, dateLong, timeRange, location } = args;
   return `<!DOCTYPE html>
@@ -115,7 +111,7 @@ function buildHtml(args: {
 </html>`;
 }
 
-function buildText(args: {
+function buildOneOffText(args: {
   parentFirst: string; playerFirst: string; teamName: string;
   dateLong: string; timeRange: string; location: string;
 }): string {
@@ -135,15 +131,76 @@ Mike Wozniak
 3Ball Academy`;
 }
 
+function buildSeriesCreateText(parentFirst: string, sc: any): string {
+  return `Hi ${parentFirst},
+
+${sc.team_name} now has weekly practices scheduled:
+${sc.day_of_week}s, ${sc.time}
+${sc.location}
+From ${fmtFullDate(sc.start_date)} through ${fmtFullDate(sc.end_date)} (${sc.occurrence_count} practices total)
+
+You can RSVP to each practice in the 3Ball app under the Practices tab.
+
+— 3Ball Academy`;
+}
+
+function buildSeriesEditText(parentFirst: string, se: any): string {
+  return `Hi ${parentFirst},
+
+Heads up — the ${se.team_name} practice schedule has been updated. Starting ${fmtFullDate(se.effective_date)}:
+
+${se.changes_summary}
+
+Check the Practices tab in the 3Ball app for the latest details.
+
+— 3Ball Academy`;
+}
+
+async function loadAudience(sb: any, teamCodes: string[]) {
+  const { data: players, error: plErr } = await sb
+    .from("players")
+    .select("id, first, last, team, parent_id")
+    .in("team", teamCodes)
+    .not("active", "is", false);
+  if (plErr) throw plErr;
+
+  const parentIds = [...new Set((players || []).map((p: any) => p.parent_id).filter(Boolean))];
+  if (parentIds.length === 0) return { players: players || [], parentMap: new Map() };
+
+  const { data: parents, error: parErr } = await sb
+    .from("parents")
+    .select("id, first, email, status")
+    .in("id", parentIds)
+    .eq("status", "approved");
+  if (parErr) throw parErr;
+
+  const parentMap = new Map<string, any>();
+  (parents || []).forEach((p: any) => parentMap.set(p.id, p));
+  return { players: players || [], parentMap };
+}
+
+async function sendResend(payload: any) {
+  return await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
   try {
-    const { practice_id } = await req.json();
+    const body = await req.json();
+    const mode: string = body.mode || "one_off";
+    const practice_id: string | undefined = body.practice_id;
 
-    if (!practice_id) {
+    if (!practice_id && mode === "one_off") {
       return new Response(
         JSON.stringify({ error: "Missing practice_id" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -159,6 +216,105 @@ serve(async (req) => {
 
     const sb = createClient(SUPABASE_URL, ADMIN_API_KEY);
 
+    // -------- SERIES_CREATE --------
+    if (mode === "series_create") {
+      const sc = body.series_create || {};
+      if (!sc.team_name) {
+        return new Response(
+          JSON.stringify({ error: "Missing series_create.team_name" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      const { players, parentMap } = await loadAudience(sb, [sc.team_name]);
+      if (!players.length || parentMap.size === 0) {
+        return new Response(
+          JSON.stringify({ ok: true, sent: 0, note: "No approved parents on this team." }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      const subject = `Weekly ${sc.team_name} practices scheduled — ${sc.day_of_week}s`;
+      let sent = 0;
+      const results: any[] = [];
+      for (const parent of parentMap.values()) {
+        if (!parent.email) continue;
+        const text = buildSeriesCreateText(parent.first || "there", sc);
+        try {
+          const resp = await sendResend({
+            from: FROM_EMAIL,
+            to: [parent.email],
+            reply_to: REPLY_TO,
+            subject,
+            text,
+          });
+          const data = await resp.json();
+          if (!resp.ok) {
+            console.error(`series_create resend failed for ${parent.email}:`, data);
+            results.push({ to: parent.email, ok: false, error: data });
+          } else {
+            sent++;
+            results.push({ to: parent.email, ok: true, id: data.id });
+          }
+        } catch (e) {
+          console.error(`series_create send threw for ${parent.email}:`, e);
+          results.push({ to: parent.email, ok: false, error: String(e) });
+        }
+      }
+      return new Response(
+        JSON.stringify({ ok: true, sent, total: parentMap.size, results }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // -------- SERIES_EDIT --------
+    if (mode === "series_edit") {
+      const se = body.series_edit || {};
+      if (!se.team_name) {
+        return new Response(
+          JSON.stringify({ error: "Missing series_edit.team_name" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      const { players, parentMap } = await loadAudience(sb, [se.team_name]);
+      if (!players.length || parentMap.size === 0) {
+        return new Response(
+          JSON.stringify({ ok: true, sent: 0, note: "No approved parents on this team." }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      const subject = `Practice schedule updated for ${se.team_name}`;
+      let sent = 0;
+      const results: any[] = [];
+      for (const parent of parentMap.values()) {
+        if (!parent.email) continue;
+        const text = buildSeriesEditText(parent.first || "there", se);
+        try {
+          const resp = await sendResend({
+            from: FROM_EMAIL,
+            to: [parent.email],
+            reply_to: REPLY_TO,
+            subject,
+            text,
+          });
+          const data = await resp.json();
+          if (!resp.ok) {
+            console.error(`series_edit resend failed for ${parent.email}:`, data);
+            results.push({ to: parent.email, ok: false, error: data });
+          } else {
+            sent++;
+            results.push({ to: parent.email, ok: true, id: data.id });
+          }
+        } catch (e) {
+          console.error(`series_edit send threw for ${parent.email}:`, e);
+          results.push({ to: parent.email, ok: false, error: String(e) });
+        }
+      }
+      return new Response(
+        JSON.stringify({ ok: true, sent, total: parentMap.size, results }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // -------- ONE_OFF (default) --------
     const { data: practice, error: pErr } = await sb
       .from("practices")
       .select("id, date, start_time, end_time, location, groups")
@@ -181,44 +337,13 @@ serve(async (req) => {
       );
     }
 
-    const { data: players, error: plErr } = await sb
-      .from("players")
-      .select("id, first, last, team, parent_id")
-      .in("team", groups)
-      .not("active", "is", false);
-
-    if (plErr) {
-      console.error("Players lookup failed:", plErr);
-      return new Response(
-        JSON.stringify({ error: "Players lookup failed", details: plErr }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
-
-    if (!players || players.length === 0) {
+    const { players, parentMap } = await loadAudience(sb, groups);
+    if (!players.length) {
       return new Response(
         JSON.stringify({ ok: true, sent: 0, note: "No active players on these teams." }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
-
-    const parentIds = [...new Set(players.map((p: any) => p.parent_id).filter(Boolean))];
-    const { data: parents, error: parErr } = await sb
-      .from("parents")
-      .select("id, first, email, status")
-      .in("id", parentIds)
-      .eq("status", "approved");
-
-    if (parErr) {
-      console.error("Parents lookup failed:", parErr);
-      return new Response(
-        JSON.stringify({ error: "Parents lookup failed", details: parErr }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
-
-    const parentMap = new Map<string, any>();
-    (parents || []).forEach((p: any) => parentMap.set(p.id, p));
 
     const startHHMM = practice.start_time ? String(practice.start_time).slice(0, 5) : "";
     const endHHMM = practice.end_time ? String(practice.end_time).slice(0, 5) : "";
@@ -238,7 +363,6 @@ serve(async (req) => {
         skipped++;
         continue;
       }
-
       const emailArgs = {
         parentFirst: parent.first || "there",
         playerFirst: player.first || "your player",
@@ -247,36 +371,26 @@ serve(async (req) => {
         timeRange,
         location: practice.location || "",
       };
-
       const subject = `Practice scheduled for ${player.first} — ${dateShort} at ${timeStart}`;
-
       try {
-        const resp = await fetch("https://api.resend.com/emails", {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${RESEND_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            from: FROM_EMAIL,
-            to: [parent.email],
-            reply_to: REPLY_TO,
-            subject,
-            html: buildHtml(emailArgs),
-            text: buildText(emailArgs),
-          }),
+        const resp = await sendResend({
+          from: FROM_EMAIL,
+          to: [parent.email],
+          reply_to: REPLY_TO,
+          subject,
+          html: buildOneOffHtml(emailArgs),
+          text: buildOneOffText(emailArgs),
         });
-
         const data = await resp.json();
         if (!resp.ok) {
-          console.error(`Resend failed for ${parent.email}:`, data);
+          console.error(`one_off resend failed for ${parent.email}:`, data);
           results.push({ to: parent.email, ok: false, error: data });
         } else {
           sent++;
           results.push({ to: parent.email, ok: true, id: data.id });
         }
       } catch (e) {
-        console.error(`Send threw for ${parent.email}:`, e);
+        console.error(`one_off send threw for ${parent.email}:`, e);
         results.push({ to: parent.email, ok: false, error: String(e) });
       }
     }
