@@ -5808,6 +5808,16 @@ async function saveCoach() {
         toast('Invite sent to ' + email + '. They’ll start as a regular coach — you can promote to admin via Edit later.');
       }
 
+      // Branded welcome email (fire-and-forget; never blocks coach creation)
+      try {
+        sb.functions.invoke('send-welcome-coach', {
+          body: { email: email, first_name: first }
+        }).then(function(res) {
+          if (res && res.error) console.error('welcome-coach email failed:', res.error);
+          else if (res && res.data) console.log('welcome-coach email sent:', res.data);
+        }).catch(function(e) { console.error('welcome-coach email threw:', e); });
+      } catch (e) { console.error('welcome-coach email setup threw:', e); }
+
       await loadCoaches();
       closeModal('coach-modal');
       renderCoachManagement();
