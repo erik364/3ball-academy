@@ -6489,18 +6489,18 @@ async function subscribeUserCalendar() {
 
 function renderPlayerCalendarSubscribeButtons() {
   const container = document.getElementById('player-calendar-subscribe-buttons');
-  if (!container || !state.currentParent) return;
-  const myKids = state.players.filter(p => p.parentId === state.currentParent.id && p.active !== false);
-  if (!myKids.length) {
-    container.innerHTML = '<div style="font-size:12px;color:var(--text-secondary);">Add a player to enable calendar subscriptions.</div>';
+  if (!container) return;
+  const kid = state.currentPlayer;
+  if (!kid || !kid.id || !kid.first) {
+    container.innerHTML = '';
     return;
   }
-  container.innerHTML = myKids.map(k => `
-    <button class="btn btn-sm" onclick="subscribePlayerCalendar('${k.id}')" style="display:flex;align-items:center;gap:6px;">
+  container.innerHTML = `
+    <button class="btn btn-sm" onclick="subscribePlayerCalendar('${kid.id}')" style="display:flex;align-items:center;gap:6px;">
       <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 0C3.13 0 0 3.13 0 7s3.13 7 7 7 7-3.13 7-7-3.13-7-7-7zm.7 10.5H6.3V6.3h1.4v4.2zm0-5.6H6.3V3.5h1.4v1.4z" fill="currentColor"/></svg>
-      Subscribe to ${k.first}'s Calendar
+      Subscribe to ${kid.first}'s Calendar
     </button>
-  `).join('');
+  `;
 }
 
 // ===== INIT =====
