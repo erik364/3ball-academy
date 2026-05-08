@@ -5770,6 +5770,9 @@ async function saveCoach() {
   try {
     if (editingCoachId) {
       // EDIT PATH — same as before
+      const prevCoach = state.coaches.find(c => c.id === editingCoachId);
+      const prevIsAdmin = !!(prevCoach && prevCoach.isAdmin);
+
       const { error } = await sb.from('coaches')
         .update({
           first: first, last: last, email: email, phone: phone || null,
@@ -5787,6 +5790,25 @@ async function saveCoach() {
       closeModal('coach-modal');
       renderCoachManagement();
       toast('Coach saved!');
+
+      // Sync auth.users metadata when is_admin actually changed.
+      // Don't roll back the public.coaches update on failure — surface a warning instead.
+      if (prevIsAdmin !== isAdmin) {
+        try {
+          const { data: roleRes, error: roleErr } = await sb.functions.invoke('update-coach-role', {
+            body: { coach_user_id: editingCoachId, is_admin: isAdmin }
+          });
+          if (roleErr) {
+            console.error('update-coach-role failed:', roleErr);
+            toast('Coach saved, but role sync failed. Have them sign out and back in.');
+          } else {
+            console.log('update-coach-role result:', roleRes);
+          }
+        } catch (e) {
+          console.error('update-coach-role threw:', e);
+          toast('Coach saved, but role sync failed. Have them sign out and back in.');
+        }
+      }
     } else {
       // INVITE PATH — sign up auth user with random throwaway password,
       // insert coaches row, then send password reset email so the coach can
