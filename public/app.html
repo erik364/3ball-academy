@@ -831,6 +831,7 @@ body:not([data-role="admin"]) .btn.admin-only {
         <div class="nav-section">Settings</div>
         <div class="nav-item" onclick="showPage('calendar',this)"><span class="nav-icon">📆</span><span>Calendar</span></div>
         <div class="nav-item" onclick="showPage('coach-management',this)"><span class="nav-icon">🧑‍💼</span><span>Coaches</span></div>
+        <div class="nav-item" onclick="showPage('group-management',this)"><span class="nav-icon">🏷️</span><span>Groups</span></div>
         <div class="nav-item" onclick="showPage('settings',this)"><span class="nav-icon">⚙️</span><span>Settings</span></div>
         <div class="nav-item desktop-only" onclick="window.open('https://www.jcarroll.com/collections/3ball','_blank')"><span class="nav-icon">🛒</span><span>Store</span></div>
         <!-- Mobile-only "More" button -->
@@ -1314,6 +1315,22 @@ body:not([data-role="admin"]) .btn.admin-only {
           </div>
         </div>
 
+        <!-- GROUP MANAGEMENT (admin) -->
+        <div class="page" id="page-group-management">
+          <div class="section-header">
+            <span class="section-title">Group Management</span>
+            <button class="btn btn-primary admin-only" onclick="openGroupModal(null)">+ Add Group</button>
+          </div>
+          <div class="panel">
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Short Code</th><th>Name</th><th>Order</th><th>Status</th><th></th></tr></thead>
+                <tbody id="groups-table"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
       </div><!-- /content -->
     </div><!-- /main -->
   </div><!-- /app -->
@@ -1426,6 +1443,36 @@ body:not([data-role="admin"]) .btn.admin-only {
       </div>
 
       <p style="font-size:11px;color:var(--gray-mid);margin-top:14px;text-align:center;line-height:1.5;">Your calendar will update automatically. Apple usually refreshes every few hours; Google can take up to a day.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ===== GROUP MODAL (admin) ===== -->
+<div class="modal-overlay" id="group-modal">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header">
+      <span class="modal-title" id="group-modal-title">Add Group</span>
+      <button class="modal-close" onclick="closeModal('group-modal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Short Code <span style="color:var(--orange);">*</span></label>
+        <input class="form-input" id="gm-short-code" placeholder="e.g. T or U10">
+        <div id="gm-short-code-warning" style="display:none;margin-top:6px;padding:8px 10px;background:var(--orange-light);color:var(--orange-mid);border-radius:6px;font-size:12px;line-height:1.5;">⚠️ Changing the short code will rename it everywhere it's used (coaches, players, practices, tournaments). This is atomic but irreversible without another rename.</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Name <span style="color:var(--orange);">*</span></label>
+        <input class="form-input" id="gm-name" placeholder="Display name (often same as short code)">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Display Order</label>
+        <input class="form-input" id="gm-display-order" type="number" placeholder="1, 2, 3…" style="max-width:140px;">
+        <div style="font-size:11px;color:var(--text-secondary);margin-top:4px;">Lower numbers appear first in pickers and roster sorts.</div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('group-modal')">Cancel</button>
+      <button class="btn btn-primary" id="group-modal-save-btn" onclick="saveGroup()">Save Group</button>
     </div>
   </div>
 </div>
@@ -1812,7 +1859,8 @@ function showPage(id, navEl) {
     'parent-account':'My Account',
     'coach-schedule':'My Schedule',
     'coach-roster':'My Players',
-    'coach-management':'Coach Management'
+    'coach-management':'Coach Management',
+    'group-management':'Group Management'
   };
   document.getElementById('topbar-title').textContent = titles[id] || id;
 
@@ -5869,6 +5917,178 @@ function renderCoachRoster() {
 
 // ===== COACH MANAGEMENT (admin) =====
 
+// ===== GROUP MANAGEMENT (admin) =====
+let editingGroupId = null;
+let editingGroupOriginalCode = null;
+
+function renderGroupManagement() {
+  const tbody = document.getElementById('groups-table');
+  if (!tbody) return;
+  const sorted = (state.groups || []).slice().sort((a, b) => {
+    if (a.archived !== b.archived) return a.archived ? 1 : -1;
+    return a.displayOrder - b.displayOrder;
+  });
+  if (!sorted.length) {
+    tbody.innerHTML = '<tr><td colspan="5"><div class="empty"><div class="empty-icon">🏷️</div><div class="empty-text">No groups defined yet.</div></div></td></tr>';
+    return;
+  }
+  tbody.innerHTML = sorted.map(g => `
+    <tr style="${g.archived ? 'opacity:0.55;' : ''}">
+      <td><strong>${g.shortCode}</strong></td>
+      <td>${g.name}</td>
+      <td>${g.displayOrder}</td>
+      <td>${g.archived ? '<span class="pill pill-gray">Archived</span>' : '<span class="pill pill-green">Active</span>'}</td>
+      <td style="text-align:right;">
+        <button class="btn btn-sm" onclick="openGroupModal('${g.id}')">Edit</button>
+        ${!g.archived ? `<button class="btn btn-sm btn-danger" style="margin-left:4px;" onclick="deleteGroup('${g.id}')">Delete</button>` : ''}
+      </td>
+    </tr>`).join('');
+}
+
+function openGroupModal(id) {
+  editingGroupId = id || null;
+  const g = id ? state.groups.find(x => x.id === id) : null;
+  editingGroupOriginalCode = g ? g.shortCode : null;
+  document.getElementById('group-modal-title').textContent = id ? 'Edit Group' : 'Add Group';
+  document.getElementById('gm-short-code').value = g ? g.shortCode : '';
+  document.getElementById('gm-name').value = g ? g.name : '';
+  // Default new groups to (max display_order)+1
+  let nextOrder = 1;
+  if (state.groups.length) {
+    nextOrder = Math.max(...state.groups.map(x => x.displayOrder || 0)) + 1;
+  }
+  document.getElementById('gm-display-order').value = g ? g.displayOrder : nextOrder;
+  document.getElementById('gm-short-code-warning').style.display = 'none';
+  // On edit, watch for short_code edits to surface the rename warning.
+  const codeInput = document.getElementById('gm-short-code');
+  codeInput.oninput = function() {
+    if (id && this.value.trim() !== editingGroupOriginalCode) {
+      document.getElementById('gm-short-code-warning').style.display = '';
+    } else {
+      document.getElementById('gm-short-code-warning').style.display = 'none';
+    }
+  };
+  openModal('group-modal');
+}
+
+async function saveGroup() {
+  const code = document.getElementById('gm-short-code').value.trim();
+  const name = document.getElementById('gm-name').value.trim();
+  const orderRaw = document.getElementById('gm-display-order').value;
+  const order = orderRaw === '' ? 0 : parseInt(orderRaw, 10);
+  if (!code) { toast('Short code is required'); return; }
+  if (!name) { toast('Name is required'); return; }
+  if (Number.isNaN(order)) { toast('Display order must be a number'); return; }
+  if (!sb) { toast('Auth not configured'); return; }
+
+  const saveBtn = document.getElementById('group-modal-save-btn');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving...'; }
+
+  try {
+    if (editingGroupId) {
+      // Edit path. If short_code changed, run the atomic rename RPC first
+      // (propagates across coaches/players/practices/tournaments), then update
+      // name/display_order on the row.
+      if (code !== editingGroupOriginalCode) {
+        const { error: renameErr } = await sb.rpc('rename_group_code', {
+          old_code: editingGroupOriginalCode,
+          new_code: code
+        });
+        if (renameErr) {
+          console.error('rename_group_code error:', renameErr);
+          toast('Rename failed: ' + (renameErr.message || 'unknown'));
+          return;
+        }
+      }
+      const { error } = await sb.from('groups').update({
+        name: name,
+        display_order: order,
+        updated_at: new Date().toISOString()
+      }).eq('id', editingGroupId);
+      if (error) {
+        console.error('saveGroup update error:', error);
+        toast('Save failed: ' + error.message);
+        return;
+      }
+      toast('Group saved.');
+    } else {
+      // Create path
+      const { error } = await sb.from('groups').insert({
+        short_code: code,
+        name: name,
+        display_order: order
+      });
+      if (error) {
+        if (error.code === '23505') {
+          toast('Short code already in use.');
+        } else {
+          console.error('saveGroup insert error:', error);
+          toast('Save failed: ' + error.message);
+        }
+        return;
+      }
+      toast('Group added.');
+    }
+    await loadGroups();
+    populateAllGroupSelects();
+    renderGroupManagement();
+    closeModal('group-modal');
+  } catch (e) {
+    console.error('saveGroup threw:', e);
+    toast('Save failed: ' + e.message);
+  } finally {
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save Group'; }
+  }
+}
+
+async function deleteGroup(id) {
+  const g = state.groups.find(x => x.id === id);
+  if (!g) return;
+  if (!sb) { toast('Auth not configured'); return; }
+
+  // Reference count via DB function. If non-zero, archive instead.
+  let refCount = 0;
+  try {
+    const { data, error } = await sb.rpc('group_reference_count', { code: g.shortCode });
+    if (error) {
+      console.error('group_reference_count error:', error);
+      toast('Could not check references: ' + (error.message || 'unknown'));
+      return;
+    }
+    refCount = data || 0;
+  } catch (e) {
+    console.error('group_reference_count threw:', e);
+    toast('Could not check references.');
+    return;
+  }
+
+  if (refCount > 0) {
+    if (!confirm(`"${g.shortCode}" is in use by ${refCount} item${refCount === 1 ? '' : 's'}. It will be archived (hidden from new pickers) but not deleted. Continue?`)) return;
+    const { error } = await sb.from('groups').update({
+      archived: true,
+      updated_at: new Date().toISOString()
+    }).eq('id', id);
+    if (error) {
+      console.error('archive error:', error);
+      toast('Archive failed: ' + error.message);
+      return;
+    }
+    toast(`Archived. In use by ${refCount} item${refCount === 1 ? '' : 's'}.`);
+  } else {
+    if (!confirm(`Delete "${g.shortCode}" permanently? It has zero references.`)) return;
+    const { error } = await sb.from('groups').delete().eq('id', id);
+    if (error) {
+      console.error('delete error:', error);
+      toast('Delete failed: ' + error.message);
+      return;
+    }
+    toast('Group deleted.');
+  }
+  await loadGroups();
+  populateAllGroupSelects();
+  renderGroupManagement();
+}
+
 function renderCoachManagement() {
   const tbody = document.getElementById('coaches-table');
   if (!tbody) return;
@@ -6106,6 +6326,7 @@ showPage = function(id, navEl) {
   if (id === 'coach-schedule') renderCoachSchedule();
   if (id === 'coach-roster') renderCoachRoster();
   if (id === 'coach-management') renderCoachManagement();
+  if (id === 'group-management') renderGroupManagement();
 };
 
 // ===== CALENDAR EVENT MODAL =====
