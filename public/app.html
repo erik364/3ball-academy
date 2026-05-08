@@ -1746,6 +1746,7 @@ let state = {
   tournamentGames: [],
   tournamentTeams: [],
   tournamentRsvps: [],
+  tournamentPayments: [],
   tournamentGameRsvps: [],
   parents: [],
   players: [],
@@ -2234,6 +2235,30 @@ async function loadTournamentRsvps() {
   } catch (e) { console.error('loadTournamentRsvps threw:', e); }
 }
 
+async function loadTournamentPayments() {
+  if (!sb) return;
+  try {
+    const { data, error } = await sb.from('tournament_payments').select('*');
+    if (error) {
+      // RLS may legitimately return zero rows for non-admin coaches; an error
+      // here means something deeper is broken.
+      console.error('loadTournamentPayments error:', error);
+      state.tournamentPayments = [];
+      return;
+    }
+    state.tournamentPayments = (data || []).map(function(row) {
+      return {
+        id: row.id,
+        tournamentId: row.tournament_id,
+        playerId: row.player_id,
+        isPaid: !!row.is_paid,
+        paidAt: row.paid_at || null,
+        confirmationSentAt: row.confirmation_sent_at || null
+      };
+    });
+  } catch (e) { console.error('loadTournamentPayments threw:', e); }
+}
+
 async function loadTournamentGameRsvps() {
   if (!sb) return;
   try {
@@ -2268,7 +2293,7 @@ async function loadPracticeCheckins() {
 // Convenience wrapper: load practices/tournaments + their child rows in the right order
 async function loadSchedule() {
   await Promise.all([loadPractices(), loadTournaments(), loadTournamentTeams(), loadTournamentGames()]);
-  await Promise.all([loadPracticeRsvps(), loadTournamentRsvps(), loadTournamentGameRsvps(), loadPracticeCheckins()]);
+  await Promise.all([loadPracticeRsvps(), loadTournamentRsvps(), loadTournamentGameRsvps(), loadPracticeCheckins(), loadTournamentPayments()]);
 }
 function resolveSupabaseUser(user) {
   var email = (user.email || '').toLowerCase();
@@ -3625,6 +3650,12 @@ function renderTournamentDetail() {
   // RSVP Responses section (one block per invited team)
   const rsvpSection = document.getElementById('td-rsvp-section');
   const invitedTeams = Array.isArray(t.teams) ? t.teams : [];
+  const isAdminViewer = !!(state.currentUser && state.currentUser.isAdmin);
+  // Set of player ids rostered to ANY tournament_team for this tournament — gates payment toggle
+  const rosteredPlayerIds = new Set();
+  state.tournamentTeams
+    .filter(tm => tm.tournamentId === t.id)
+    .forEach(tm => (tm.playerIds || []).forEach(pid => rosteredPlayerIds.add(pid)));
   if (!invitedTeams.length) {
     rsvpSection.innerHTML = '';
   } else {
@@ -3651,9 +3682,20 @@ function renderTournamentDetail() {
         ? rows.map(r => {
             const pillClass = r.answer === 'yes' ? 'pill-green' : r.answer === 'no' ? 'pill-red' : 'pill-gray';
             const pillLabel = r.answer === 'yes' ? 'Yes' : r.answer === 'no' ? 'No' : 'Pending';
+            // Payment toggle (admin-only, rostered-only)
+            let paidCtl = '';
+            if (isAdminViewer && rosteredPlayerIds.has(r.player.id)) {
+              const pay = state.tournamentPayments.find(p => p.tournamentId === t.id && p.playerId === r.player.id);
+              if (pay && pay.isPaid) {
+                paidCtl = `<span class="pill pill-green" style="margin-left:8px;">Paid ✓</span>
+                  <button class="btn btn-sm" style="margin-left:6px;padding:2px 8px;font-size:11px;" onclick="undoTournamentPaid('${t.id}','${r.player.id}')">Undo</button>`;
+              } else {
+                paidCtl = `<button class="btn btn-sm" style="margin-left:8px;padding:2px 10px;font-size:11px;" onclick="markTournamentPaid('${t.id}','${r.player.id}')">Mark Paid</button>`;
+              }
+            }
             return `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--gray-border);">
               <span style="font-size:13px;">${r.player.first} ${r.player.last}</span>
-              <span class="pill ${pillClass}">${pillLabel}</span>
+              <span style="display:flex;align-items:center;"><span class="pill ${pillClass}">${pillLabel}</span>${paidCtl}</span>
             </div>`;
           }).join('')
         : '<div style="font-size:12px;color:var(--text-secondary);font-style:italic;padding:6px 0;">No players on this team.</div>';
@@ -5284,6 +5326,13 @@ function renderPlayerTournaments() {
       }
     }
 
+    // Payment badge — rostered-only (this branch IS the rostered case). Reflects
+    // is_paid state from tournament_payments. No row OR is_paid=false → Unpaid.
+    const payRow = state.tournamentPayments.find(p => p.tournamentId === t.id && p.playerId === kid.id);
+    const paidBadge = (payRow && payRow.isPaid)
+      ? '<span class="pill pill-green">Paid ✓</span>'
+      : '<span class="pill pill-red">Unpaid</span>';
+
     return `<div class="panel">
       <div style="padding:14px 16px;">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:6px;">
@@ -5291,7 +5340,10 @@ function renderPlayerTournaments() {
             <div style="font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:700;">${t.name}</div>
             <div style="font-size:12px;color:var(--text-secondary);margin-top:2px;">${datesStr}</div>
           </div>
-          <span class="pill ${past ? 'pill-gray' : 'pill-orange'}">${past ? 'Past' : 'Upcoming'}</span>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
+            <span class="pill ${past ? 'pill-gray' : 'pill-orange'}">${past ? 'Past' : 'Upcoming'}</span>
+            ${paidBadge}
+          </div>
         </div>
         ${t.notes ? `<div style="font-size:12px;color:var(--text-secondary);font-style:italic;margin-top:4px;margin-bottom:10px;">${t.notes}</div>` : '<div style="margin-bottom:10px;"></div>'}
 
@@ -5305,6 +5357,82 @@ function renderPlayerTournaments() {
       </div>
     </div>`;
   }).join('');
+}
+
+// Mark a player paid for a tournament. First mark-paid per (tournament, player)
+// fires the parent confirmation email via the Edge Function (gated by
+// confirmation_sent_at on the row). Subsequent mark/un-mark cycles never re-fire.
+async function markTournamentPaid(tournamentId, playerId) {
+  if (!sb) return;
+  try {
+    // Upsert is_paid=true. Edge Function handles the confirmation_sent_at gate.
+    const { error: upErr } = await sb.from('tournament_payments').upsert({
+      tournament_id: tournamentId,
+      player_id: playerId,
+      is_paid: true,
+      paid_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'tournament_id,player_id' });
+    if (upErr) {
+      console.error('markTournamentPaid upsert error:', upErr);
+      toast('Could not mark paid: ' + upErr.message);
+      return;
+    }
+    await loadTournamentPayments();
+    if (typeof renderTournamentDetail === 'function' && state.viewingTournamentId === tournamentId) {
+      renderTournamentDetail();
+    }
+
+    // Fire confirmation email (silent fail; the Edge Function self-gates and
+    // will return sent:0 if confirmation_sent_at is already set).
+    try {
+      const { data: emailData, error: emailErr } = await sb.functions.invoke('send-tournament-payment-confirmation', {
+        body: { tournament_id: tournamentId, player_id: playerId }
+      });
+      if (emailErr) {
+        console.error('payment confirmation email failed:', emailErr);
+      } else {
+        console.log('payment confirmation result:', emailData);
+        // Reload to pick up confirmation_sent_at if the email actually went out
+        if (emailData && emailData.sent) {
+          await loadTournamentPayments();
+          if (typeof renderTournamentDetail === 'function' && state.viewingTournamentId === tournamentId) {
+            renderTournamentDetail();
+          }
+        }
+      }
+    } catch (e) {
+      console.error('payment confirmation email threw:', e);
+    }
+    toast('Marked paid.');
+  } catch (e) {
+    console.error('markTournamentPaid threw:', e);
+    toast('Could not mark paid.');
+  }
+}
+
+async function undoTournamentPaid(tournamentId, playerId) {
+  if (!sb) return;
+  try {
+    const { error } = await sb.from('tournament_payments').update({
+      is_paid: false,
+      paid_at: null,
+      updated_at: new Date().toISOString()
+    }).eq('tournament_id', tournamentId).eq('player_id', playerId);
+    if (error) {
+      console.error('undoTournamentPaid error:', error);
+      toast('Could not un-mark: ' + error.message);
+      return;
+    }
+    await loadTournamentPayments();
+    if (typeof renderTournamentDetail === 'function' && state.viewingTournamentId === tournamentId) {
+      renderTournamentDetail();
+    }
+    toast('Un-marked paid.');
+  } catch (e) {
+    console.error('undoTournamentPaid threw:', e);
+    toast('Could not un-mark.');
+  }
 }
 
 async function setTournRsvp(tournId, playerId, answer, opts) {
