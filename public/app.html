@@ -1033,9 +1033,7 @@ body:not([data-role="admin"]) .btn.admin-only {
                   <div class="form-group">
                     <label class="form-label">Filter by team</label>
                     <select class="form-select" id="checkin-team-filter" onchange="renderCheckinGrid()">
-                      <option value="">All teams</option>
-                      <option>T</option><option>C</option><option>B</option>
-                      <option>G</option><option>O</option><option>3BHS</option><option>3BGals</option>
+                      <option value="">All groups</option>
                     </select>
                   </div>
                   <input class="form-input" id="checkin-search" placeholder="Search player name…" oninput="renderCheckinGrid()" style="margin-bottom:10px;">
@@ -1067,9 +1065,7 @@ body:not([data-role="admin"]) .btn.admin-only {
             <span class="section-title">Player Roster</span>
             <div style="display:flex;gap:8px;">
               <select class="form-select" style="width:auto;" id="roster-filter-team" onchange="renderRoster()">
-                <option value="">All teams</option>
-                <option>T</option><option>C</option><option>B</option>
-                <option>G</option><option>O</option><option>3BHS</option><option>3BGals</option>
+                <option value="">All groups</option>
               </select>
               <input class="form-input" style="width:180px;" id="roster-search" placeholder="Search…" oninput="renderRoster()">
               <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-secondary);cursor:pointer;">
@@ -1096,9 +1092,7 @@ body:not([data-role="admin"]) .btn.admin-only {
             <span class="section-title">Response Reports</span>
             <div style="display:flex;gap:8px;">
               <select class="form-select" style="width:auto;" id="attend-team-filter" onchange="renderAttendanceReport()">
-                <option value="">All teams</option>
-                <option>T</option><option>C</option><option>B</option>
-                <option>G</option><option>O</option><option>3BHS</option><option>3BGals</option>
+                <option value="">All groups</option>
               </select>
             </div>
           </div>
@@ -1370,8 +1364,6 @@ body:not([data-role="admin"]) .btn.admin-only {
           <label class="form-label">Team / Group</label>
           <select class="form-select" id="ch-team">
             <option value="">Select...</option>
-            <option>T</option><option>C</option><option>B</option>
-            <option>G</option><option>O</option><option>3BHS</option><option>3BGals</option>
           </select>
         </div>
         <div class="form-group"><label class="form-label">Grad Year</label><input class="form-input" id="ch-grad" placeholder="2028"></div>
@@ -1454,9 +1446,7 @@ body:not([data-role="admin"]) .btn.admin-only {
       <div class="form-group"><label class="form-label">Phone</label><input class="form-input" id="cm-phone" placeholder="(805) 555-0200"></div>
       <div class="form-group">
         <label class="form-label">Assigned Teams</label>
-        <div id="cm-teams" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;">
-          ${['T','C','B','G','O','3BHS','3BGals'].map(t=>`<label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;"><input type="checkbox" class="cm-team-cb" value="${t}" style="accent-color:var(--green-dark);"> ${t}</label>`).join('')}
-        </div>
+        <div id="cm-teams" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;"></div>
       </div>
       <label class="form-check" style="margin-top:8px;">
         <input type="checkbox" id="cm-admin" style="accent-color:var(--green-dark);">
@@ -1558,15 +1548,7 @@ body:not([data-role="admin"]) .btn.admin-only {
       </div>
       <div class="form-group">
         <label class="form-label">Groups</label>
-        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px;" id="p-groups">
-          <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;"><input type="checkbox" value="T" style="accent-color:var(--green-dark);"> T</label>
-          <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;"><input type="checkbox" value="C" style="accent-color:var(--green-dark);"> C</label>
-          <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;"><input type="checkbox" value="B" style="accent-color:var(--green-dark);"> B</label>
-          <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;"><input type="checkbox" value="G" style="accent-color:var(--green-dark);"> G</label>
-          <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;"><input type="checkbox" value="O" style="accent-color:var(--green-dark);"> O</label>
-          <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;"><input type="checkbox" value="3BHS" style="accent-color:var(--green-dark);"> 3BHS</label>
-          <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;"><input type="checkbox" value="3BGals" style="accent-color:var(--green-dark);"> 3BGals</label>
-        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px;" id="p-groups"></div>
       </div>
       <div class="form-group"><label class="form-label">Notes (optional)</label><input class="form-input" id="p-notes" placeholder="e.g. Bring your ball, altered times…"></div>
       <div class="form-group">
@@ -1747,6 +1729,7 @@ let state = {
   tournamentTeams: [],
   tournamentRsvps: [],
   tournamentPayments: [],
+  groups: [],
   tournamentGameRsvps: [],
   parents: [],
   players: [],
@@ -2116,6 +2099,57 @@ async function loadCoaches() {
     console.error('loadLocations threw:', e);
   }
 }
+
+async function loadGroups() {
+  if (!sb) return;
+  try {
+    const { data, error } = await sb.from('groups').select('*').order('display_order');
+    if (error) { console.error('loadGroups error:', error); return; }
+    state.groups = (data || []).map(function(row) {
+      return {
+        id: row.id,
+        shortCode: row.short_code,
+        name: row.name,
+        displayOrder: row.display_order,
+        archived: !!row.archived
+      };
+    });
+  } catch (e) { console.error('loadGroups threw:', e); }
+}
+
+// Active short codes (non-archived) sorted by display_order. Used by every
+// picker UI in place of the old hardcoded array.
+function activeGroupCodes() {
+  return (state.groups || [])
+    .filter(g => !g.archived)
+    .slice()
+    .sort((a, b) => a.displayOrder - b.displayOrder)
+    .map(g => g.shortCode);
+}
+
+// Display order for a code (for sorting groupings of players/etc.). Unknown
+// codes sort to the end.
+function groupOrderOf(code) {
+  const g = (state.groups || []).find(x => x.shortCode === code);
+  return g ? g.displayOrder : 9999;
+}
+
+// Populate static filter <select> elements with the current group codes.
+// Preserves the first <option> (typically "All groups" or "Select...").
+function populateGroupSelect(selectId) {
+  const sel = document.getElementById(selectId);
+  if (!sel) return;
+  const placeholder = sel.querySelector('option[value=""]');
+  const placeholderHtml = placeholder ? placeholder.outerHTML : '';
+  sel.innerHTML = placeholderHtml + activeGroupCodes()
+    .map(c => `<option value="${c}">${c}</option>`)
+    .join('');
+}
+
+function populateAllGroupSelects() {
+  ['checkin-team-filter', 'roster-filter-team', 'attend-team-filter', 'ch-team']
+    .forEach(populateGroupSelect);
+}
   async function loadPractices() {
   if (!sb) return;
   try {
@@ -2346,7 +2380,7 @@ function doLogin() {
       err.textContent = 'Invalid email or password.';
       return;
     }
-   Promise.all([loadCoaches(), loadParents(), loadPlayers(), loadPlayerNotes(), loadSchedule(), loadSettings()]).then(function() {
+   Promise.all([loadCoaches(), loadParents(), loadPlayers(), loadPlayerNotes(), loadSchedule(), loadSettings(), loadGroups()]).then(function() {
       var resolved = resolveSupabaseUser(result.data.user);
       if (!resolved) {
         err.textContent = 'Account exists but no role is assigned. Contact your admin.';
@@ -2393,7 +2427,8 @@ function enterApp(role) {
   document.getElementById('login-page').style.display = 'none';
   document.getElementById('app').style.display = 'block';
 
-Promise.all([loadLocations(), loadCoaches(), loadParents(), loadPlayers(), loadPlayerNotes(), loadSchedule(), loadSettings()]).then(function() {
+Promise.all([loadLocations(), loadCoaches(), loadParents(), loadPlayers(), loadPlayerNotes(), loadSchedule(), loadSettings(), loadGroups()]).then(function() {
+    populateAllGroupSelects();
     if (typeof renderLocations === 'function') renderLocations();
     if (typeof renderCoachManagement === 'function') renderCoachManagement();
 
@@ -2564,7 +2599,7 @@ function submitNewPassword() {
   sb.auth.getSession().then(function(result) {
     var session = result.data && result.data.session;
     if (!session || !session.user) return;
-    Promise.all([loadCoaches(), loadParents(), loadPlayers(), loadPlayerNotes(), loadSchedule(), loadSettings()]).then(function() {
+    Promise.all([loadCoaches(), loadParents(), loadPlayers(), loadPlayerNotes(), loadSchedule(), loadSettings(), loadGroups()]).then(function() {
         var resolved = resolveSupabaseUser(session.user);
         if (!resolved) return;
         // Gate unapproved parents
@@ -3108,10 +3143,11 @@ function openPracticeModal(id) {
   // populate locations
   const locSel = document.getElementById('p-location');
   locSel.innerHTML = '<option value="">Select...</option>' + state.locations.map(l=>`<option ${p&&p.location===l.name?'selected':''}>${l.name}</option>`).join('');
-  // groups
-  document.querySelectorAll('#p-groups input[type=checkbox]').forEach(cb => {
-    cb.checked = p ? p.groups.includes(cb.value) : false;
-  });
+  // groups — render from state.groups, pre-check anything in this practice
+  const selectedGroupCodes = (p && Array.isArray(p.groups)) ? p.groups : [];
+  document.getElementById('p-groups').innerHTML = activeGroupCodes()
+    .map(code => `<label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;"><input type="checkbox" value="${code}" style="accent-color:var(--green-dark);" ${selectedGroupCodes.includes(code)?'checked':''}> ${code}</label>`)
+    .join('');
   // coaches
   const assigned = p?.coachIds || [];
   document.getElementById('p-coaches').innerHTML = state.coaches.map(c =>
@@ -3545,7 +3581,7 @@ function openTournamentModal(id) {
   document.getElementById('t-start').value = t ? t.startDate : '';
   document.getElementById('t-end').value = t ? t.endDate : '';
   document.getElementById('t-notes').value = t ? t.notes : '';
-  const teamCodes = ['T','C','B','G','O','3BHS','3BGals'];
+  const teamCodes = activeGroupCodes();
   const selected = (t && Array.isArray(t.teams)) ? t.teams : [];
   document.getElementById('t-teams-container').innerHTML = teamCodes.map(code =>
     `<label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;"><input type="checkbox" id="t-team-${code}" value="${code}" style="accent-color:var(--green-dark);" ${selected.includes(code)?'checked':''}> ${code}</label>`
@@ -3747,7 +3783,7 @@ function renderTournamentDetail() {
       if (!byTeam[team]) byTeam[team] = [];
       byTeam[team].push(p);
     });
-    const TEAM_ORDER = ['T','C','B','G','O','3BHS','3BGals'];
+    const TEAM_ORDER = activeGroupCodes();
     const sortedTeamKeys = TEAM_ORDER.filter(k => byTeam[k]).concat(
       Object.keys(byTeam).filter(k => !TEAM_ORDER.includes(k))
     );
@@ -3870,7 +3906,7 @@ function renderTeamModalPlayers(selectedIds) {
     if (!byTeam[t]) byTeam[t] = [];
     byTeam[t].push(p);
   });
-  const TEAM_ORDER = ['T','C','B','G','O','3BHS','3BGals'];
+  const TEAM_ORDER = activeGroupCodes();
   const sortedKeys = TEAM_ORDER.filter(k => byTeam[k]).concat(
     Object.keys(byTeam).filter(k => !TEAM_ORDER.includes(k))
   );
@@ -4413,7 +4449,7 @@ function buildRosterRow(p, includeAdminCols) {
 
   // Team: inline dropdown for admin, read-only tag for coach
   if (includeAdminCols) {
-    const teamOptions = ['T','C','B','G','O','3BHS','3BGals'];
+    const teamOptions = activeGroupCodes();
     row += '<td><select onchange="setPlayerTeam(\'' + p.id + '\',this.value)" style="font-size:12px;padding:3px 6px;border-radius:5px;border:1px solid var(--gray-border);">'
       + '<option value="">—</option>'
       + teamOptions.map(t => '<option value="' + t + '"' + (p.team === t ? ' selected' : '') + '>' + t + '</option>').join('')
@@ -5882,7 +5918,7 @@ function openCoachModal(id) {
     document.getElementById('cm-admin').checked = false;
   }
   // Render team checkboxes
-  document.getElementById('cm-teams').innerHTML = ['T','C','B','G','O','3BHS','3BGals'].map(t =>
+  document.getElementById('cm-teams').innerHTML = activeGroupCodes().map(t =>
     `<label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;padding:3px 8px;border-radius:4px;background:${c?.teams?.includes(t)?'var(--green-light)':'transparent'};border:1px solid ${c?.teams?.includes(t)?'var(--green-mid)':'var(--gray-border)'};">
       <input type="checkbox" class="cm-team-cb" value="${t}" ${c?.teams?.includes(t)?'checked':''} style="accent-color:var(--green-dark);"> ${t}
     </label>`).join('');
@@ -6399,7 +6435,7 @@ function showSessionRoster(sessionId, type) {
     else teams[p.team].pending.push(p);
   });
 
-  const TEAM_ORDER = ['T','C','B','G','O','3BHS','3BGals'];
+  const TEAM_ORDER = activeGroupCodes();
   const sortedTeams = TEAM_ORDER.filter(t => teams[t]).concat(Object.keys(teams).filter(t => !TEAM_ORDER.includes(t)));
 
   let html = '';
@@ -6472,7 +6508,7 @@ function renderAttendanceSummary() {
   const monthNames = {'01':'Jan','02':'Feb','03':'Mar','04':'Apr','05':'May','06':'Jun','07':'Jul','08':'Aug','09':'Sep','10':'Oct','11':'Nov','12':'Dec'};
   
   // Team breakdown
-  const TEAMS = ['T','C','B','G','O','3BHS','3BGals'];
+  const TEAMS = activeGroupCodes();
   const teamFilter = document.getElementById('attend-team-filter')?.value || '';
   
   // Monthly sessions count
