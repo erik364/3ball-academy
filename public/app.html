@@ -1032,7 +1032,7 @@ body:not([data-role="admin"]) .btn.admin-only {
                 </div>
                 <div id="checkin-search-wrap" style="display:none;">
                   <div class="form-group">
-                    <label class="form-label">Filter by team</label>
+                    <label class="form-label">Filter by group</label>
                     <select class="form-select" id="checkin-team-filter" onchange="renderCheckinGrid()">
                       <option value="">All groups</option>
                     </select>
@@ -1079,7 +1079,7 @@ body:not([data-role="admin"]) .btn.admin-only {
             <div class="table-wrap">
               <table>
                 <thead><tr>
-                  <th>Player</th><th>#</th><th>Team</th><th>Grad Year</th><th>Parent/Guardian</th><th>Waiver</th><th>Attendance Rate</th><th>Last Paid</th><th>Current Month</th><th>Status</th>
+                  <th>Player</th><th>#</th><th>Group</th><th>Grad Year</th><th>Parent/Guardian</th><th>Waiver</th><th>Attendance Rate</th><th>Last Paid</th><th>Current Month</th><th>Status</th>
                 </tr></thead>
                 <tbody id="roster-table"></tbody>
               </table>
@@ -1115,7 +1115,7 @@ body:not([data-role="admin"]) .btn.admin-only {
             </div>
           </div>
           <div class="panel" style="margin-bottom:14px;">
-            <div class="panel-header"><span class="panel-title">📊 Monthly Summary & Team Breakdown</span></div>
+            <div class="panel-header"><span class="panel-title">📊 Monthly Summary & Group Breakdown</span></div>
             <div style="padding:14px 16px;" id="attend-monthly-summary">
               <div class="empty"><div class="empty-icon">📊</div><div class="empty-text">Loading summary…</div></div>
             </div>
@@ -1127,7 +1127,7 @@ body:not([data-role="admin"]) .btn.admin-only {
             <div class="table-wrap">
               <table>
                 <thead><tr>
-                  <th>Player</th><th>Team</th><th>Sessions Attended</th><th>Rate</th><th></th>
+                  <th>Player</th><th>Group</th><th>Sessions Attended</th><th>Rate</th><th></th>
                 </tr></thead>
                 <tbody id="attendance-table"></tbody>
               </table>
@@ -1308,7 +1308,7 @@ body:not([data-role="admin"]) .btn.admin-only {
           <div class="panel">
             <div class="table-wrap">
               <table>
-                <thead><tr><th>Coach</th><th>Email</th><th>Teams</th><th>Role</th><th></th></tr></thead>
+                <thead><tr><th>Coach</th><th>Email</th><th>Groups</th><th>Role</th><th></th></tr></thead>
                 <tbody id="coaches-table"></tbody>
               </table>
             </div>
@@ -1378,7 +1378,7 @@ body:not([data-role="admin"]) .btn.admin-only {
       </div>
       <div class="form-row">
         <div class="form-group">
-          <label class="form-label">Team / Group</label>
+          <label class="form-label">Group</label>
           <select class="form-select" id="ch-team">
             <option value="">Select...</option>
           </select>
@@ -1492,7 +1492,7 @@ body:not([data-role="admin"]) .btn.admin-only {
       <div class="form-group"><label class="form-label">Email</label><input class="form-input" id="cm-email" type="email" placeholder="coach@3ball.org"></div>
       <div class="form-group"><label class="form-label">Phone</label><input class="form-input" id="cm-phone" placeholder="(805) 555-0200"></div>
       <div class="form-group">
-        <label class="form-label">Assigned Teams</label>
+        <label class="form-label">Assigned Groups</label>
         <div id="cm-teams" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;"></div>
       </div>
       <label class="form-check" style="margin-top:8px;">
@@ -1642,7 +1642,7 @@ body:not([data-role="admin"]) .btn.admin-only {
         <div class="form-group"><label class="form-label">End Date</label><input class="form-input" id="t-end" type="date"></div>
       </div>
       <div class="form-group">
-        <label class="form-label">Participating Teams <span style="color:var(--orange);">*</span></label>
+        <label class="form-label">Participating Groups <span style="color:var(--orange);">*</span></label>
         <div id="t-teams-container" style="display:flex;flex-wrap:wrap;gap:8px;padding:8px;border:1px solid var(--gray-border);border-radius:6px;background:var(--gray-bg);">
           <!-- checkboxes rendered at modal open -->
         </div>
@@ -2752,7 +2752,7 @@ function renderRegPlayerForms() {
         <div class="form-group" style="grid-column:1/-1;"><label class="form-label">Grad Year <span style="color:var(--orange);">*</span></label><input class="form-input" id="rp-grad-${i}" placeholder="2028" value="${p.grad||''}"></div>
       </div>
       <div style="margin-top:6px;padding:8px 10px;background:var(--orange-light);border-radius:var(--radius);font-size:12px;color:var(--orange-mid);">
-        🏀 Team / group assignment will be set by your coach after registration.
+        🏀 Group assignment will be set by your coach after registration.
       </div>
     </div>`).join('');
 }
@@ -4457,7 +4457,7 @@ function renderRosterTable(opts) {
       return;
     }
     tb.innerHTML = '<div class="panel"><div class="table-wrap"><table>'
-      + '<thead><tr><th>Player</th><th>#</th><th>Team</th><th>Grad Year</th><th>Parent / Guardian</th><th>Waiver</th><th>Attendance Rate</th></tr></thead>'
+      + '<thead><tr><th>Player</th><th>#</th><th>Group</th><th>Grad Year</th><th>Parent / Guardian</th><th>Waiver</th><th>Attendance Rate</th></tr></thead>'
       + '<tbody>' + players.map(p => buildRosterRow(p, false)).join('') + '</tbody>'
       + '</table></div></div>';
     return;
@@ -5840,7 +5840,7 @@ function renderCoachSchedule() {
       <div class="panel-header"><span class="panel-title">Upcoming sessions assigned to you</span></div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Date</th><th>Session</th><th>Teams</th><th>Location</th></tr></thead>
+          <thead><tr><th>Date</th><th>Session</th><th>Groups</th><th>Location</th></tr></thead>
           <tbody>
             ${all.map(item => {
               const isPractice = item._type === 'practice';
@@ -5910,7 +5910,7 @@ function renderCoachRoster() {
   }).join('');
 
   container.innerHTML = '<div class="panel"><div class="table-wrap"><table>'
-    + '<thead><tr><th>Player</th><th>#</th><th>Team</th><th>Grad Year</th><th>Parent / Guardian</th><th>Waiver</th><th>Attendance Rate</th></tr></thead>'
+    + '<thead><tr><th>Player</th><th>#</th><th>Group</th><th>Grad Year</th><th>Parent / Guardian</th><th>Waiver</th><th>Attendance Rate</th></tr></thead>'
     + '<tbody>'+rows+'</tbody>'
     + '</table></div></div>';
 }
