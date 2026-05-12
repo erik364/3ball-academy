@@ -1337,6 +1337,44 @@ body:not([data-role="admin"]) .btn.admin-only {
 </div><!-- /#app -->
 
 <!-- PENDING APPROVAL SCREEN -->
+<!-- ===== INVITE CONSUMPTION SCREEN ===== -->
+<div id="invite-consume-screen" style="display:none;position:fixed;inset:0;background:var(--gray-bg);z-index:1100;align-items:center;justify-content:center;padding:20px;overflow-y:auto;">
+  <div style="background:#fff;border-radius:12px;max-width:480px;width:100%;padding:32px;box-shadow:0 10px 40px rgba(0,0,0,0.1);">
+    <div id="invite-consume-already" style="display:none;text-align:center;">
+      <div style="font-size:48px;margin-bottom:16px;">👋</div>
+      <h2 style="font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:700;margin:0 0 12px;">You're already registered</h2>
+      <p style="font-size:14px;color:var(--text-secondary);line-height:1.5;margin:0 0 20px;">
+        Invite links create a new co-parent account. Since you're already signed in, please contact your team admin to be linked to additional kids.
+      </p>
+      <button class="btn btn-primary" style="width:100%;margin-bottom:8px;" onclick="window.location.href = window.location.origin + '/'">Back to app</button>
+      <button class="btn" style="width:100%;" onclick="signOut()">Sign out</button>
+    </div>
+    <div id="invite-consume-form-wrap" style="display:none;">
+      <div style="font-size:48px;margin-bottom:8px;text-align:center;">🤝</div>
+      <h2 style="font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:700;margin:0 0 6px;text-align:center;">You've been invited</h2>
+      <p style="font-size:14px;color:var(--text-secondary);line-height:1.5;margin:0 0 18px;text-align:center;">
+        Create your co-parent account to join your family's 3Ball Academy access.
+      </p>
+      <div id="invite-consume-error" style="display:none;background:#FDE7E7;color:#A32D2D;border-radius:6px;padding:10px 12px;font-size:13px;line-height:1.5;margin-bottom:16px;"></div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">First Name</label><input class="form-input" id="ic-first" placeholder="First"></div>
+        <div class="form-group"><label class="form-label">Last Name</label><input class="form-input" id="ic-last" placeholder="Last"></div>
+      </div>
+      <div class="form-group"><label class="form-label">Email</label><input class="form-input" id="ic-email" type="email" placeholder="you@example.com"></div>
+      <div class="form-group"><label class="form-label">Phone</label><input class="form-input" id="ic-phone" placeholder="(805) 555-0200"></div>
+      <div class="form-group"><label class="form-label">Password</label><input class="form-input" id="ic-pass" type="password" placeholder="At least 6 characters"></div>
+      <button class="btn btn-primary" style="width:100%;margin-top:8px;" onclick="submitInviteConsume()">Create Account & Link</button>
+      <button class="btn" style="width:100%;margin-top:8px;" onclick="cancelInviteConsume()">Cancel</button>
+    </div>
+    <div id="invite-consume-fatal" style="display:none;text-align:center;">
+      <div style="font-size:48px;margin-bottom:16px;">⚠️</div>
+      <h2 style="font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:700;margin:0 0 12px;" id="invite-consume-fatal-title">Invite Link Issue</h2>
+      <p id="invite-consume-fatal-msg" style="font-size:14px;color:var(--text-secondary);line-height:1.5;margin:0 0 20px;"></p>
+      <button class="btn btn-primary" style="width:100%;" onclick="window.location.href = window.location.origin + '/'">Back to app</button>
+    </div>
+  </div>
+</div>
+
 <div id="pending-approval-screen" style="display:none;position:fixed;inset:0;background:var(--gray-bg);z-index:1000;align-items:center;justify-content:center;padding:20px;">
   <div style="background:#fff;border-radius:12px;max-width:480px;width:100%;padding:32px;box-shadow:0 10px 40px rgba(0,0,0,0.1);text-align:center;">
     <div style="font-size:48px;margin-bottom:16px;">⏳</div>
@@ -1945,6 +1983,7 @@ function submitForgotPassword() {
 // ═══════════════════════════════════════════════════════════════════
 
 var _params = new URLSearchParams(window.location.search);
+var _inviteToken = _params.get('invite') || '';
 var SUPABASE_URL = 'https://aqrysacrycvkjwcbggwj.supabase.co';
 var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFxcnlzYWNyeWN2a2p3Y2JnZ3dqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5NDkyMDksImV4cCI6MjA5MjUyNTIwOX0.VAkIfwu1_oSLK5fs8eJuMJO7SIRhzTj-RS1v3O1_oq4';
 
@@ -1953,6 +1992,132 @@ if (SUPABASE_URL && SUPABASE_ANON_KEY && window.supabase) {
   sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     auth: { persistSession: true, autoRefreshToken: true, storageKey: '3ball-auth' }
   });
+}
+
+// ===== INVITE LINK CONSUMPTION =====
+// When the URL carries ?invite=<token>, take over the page with the consume
+// screen before the normal login/app flow renders. Signed-in users see a
+// "you're already registered" notice (per spec — v1 doesn't merge invites
+// into existing accounts).
+function showInviteConsumeScreen() {
+  document.getElementById('invite-consume-screen').style.display = 'flex';
+  document.getElementById('invite-consume-already').style.display = 'none';
+  document.getElementById('invite-consume-form-wrap').style.display = 'none';
+  document.getElementById('invite-consume-fatal').style.display = 'none';
+}
+
+function showInviteConsumeAlreadySignedIn() {
+  showInviteConsumeScreen();
+  document.getElementById('invite-consume-already').style.display = 'block';
+}
+
+function showInviteConsumeForm() {
+  showInviteConsumeScreen();
+  document.getElementById('invite-consume-form-wrap').style.display = 'block';
+  document.getElementById('invite-consume-error').style.display = 'none';
+}
+
+function showInviteConsumeFatal(title, msg) {
+  showInviteConsumeScreen();
+  document.getElementById('invite-consume-fatal').style.display = 'block';
+  document.getElementById('invite-consume-fatal-title').textContent = title;
+  document.getElementById('invite-consume-fatal-msg').textContent = msg;
+}
+
+function cancelInviteConsume() {
+  window.location.href = window.location.origin + '/';
+}
+
+function inviteConsumeError(message) {
+  const el = document.getElementById('invite-consume-error');
+  el.textContent = message;
+  el.style.display = 'block';
+}
+
+async function submitInviteConsume() {
+  if (!sb) { inviteConsumeError('Auth not configured.'); return; }
+  const first = document.getElementById('ic-first').value.trim();
+  const last  = document.getElementById('ic-last').value.trim();
+  const email = document.getElementById('ic-email').value.trim();
+  const phone = document.getElementById('ic-phone').value.trim();
+  const pass  = document.getElementById('ic-pass').value;
+  if (!first || !last || !email || !pass) { inviteConsumeError('Please fill in all required fields.'); return; }
+  if (pass.length < 6) { inviteConsumeError('Password must be at least 6 characters.'); return; }
+
+  try {
+    const { data: signUpData, error: signUpError } = await sb.auth.signUp({
+      email: email,
+      password: pass,
+      options: { data: { role: 'parent', first: first, last: last, phone: phone } }
+    });
+    if (signUpError) { inviteConsumeError('Could not create account: ' + signUpError.message); return; }
+    if (!signUpData || !signUpData.user) { inviteConsumeError('Account creation failed unexpectedly.'); return; }
+    const newUserId = signUpData.user.id;
+
+    // Insert parents row (status='pending' — admin still approves co-parents).
+    const { error: parentError } = await sb.from('parents').insert({
+      id: newUserId,
+      first: first,
+      last: last,
+      email: email,
+      phone: phone || null,
+      status: 'pending'
+    });
+    if (parentError) {
+      console.error('parent insert error:', parentError);
+      inviteConsumeError('Account created but profile setup failed: ' + parentError.message);
+      return;
+    }
+
+    // Consume the invite via SECURITY DEFINER RPC. Returns single-row table.
+    const { data: rpcData, error: rpcError } = await sb.rpc('consume_parent_invite', {
+      p_token: _inviteToken,
+      p_consuming_parent_id: newUserId
+    });
+    if (rpcError) {
+      console.error('consume_parent_invite error:', rpcError);
+      inviteConsumeError('Could not link to existing family: ' + rpcError.message);
+      return;
+    }
+    const result = Array.isArray(rpcData) ? rpcData[0] : rpcData;
+    if (!result || !result.success) {
+      const code = result && result.error_code ? result.error_code : 'unknown';
+      const messages = {
+        not_found: 'This invite link is invalid. Please contact your co-parent for a fresh link.',
+        already_used: 'This invite link has already been used.',
+        expired: 'This invite link has expired. Please contact your co-parent for a fresh link.',
+        self_claim: "You're already linked to this account."
+      };
+      inviteConsumeError(messages[code] || 'Could not consume the invite link.');
+      return;
+    }
+
+    // Success — clear the token from the URL, sign the user out so they hit
+    // the login screen (their parent record is still pending approval), and
+    // show a brief confirmation.
+    try { await sb.auth.signOut(); } catch (_) {}
+    window.location.href = window.location.origin + '/';
+  } catch (e) {
+    console.error('submitInviteConsume threw:', e);
+    inviteConsumeError('Something went wrong. Please try again.');
+  }
+}
+
+// Run BEFORE the normal app bootstrap so users on an invite URL don't see the
+// regular login screen flash.
+if (_inviteToken) {
+  if (sb) {
+    sb.auth.getSession().then(function(res) {
+      const hasSession = !!(res && res.data && res.data.session);
+      if (hasSession) {
+        showInviteConsumeAlreadySignedIn();
+      } else {
+        showInviteConsumeForm();
+      }
+    }).catch(function() { showInviteConsumeForm(); });
+  } else {
+    showInviteConsumeForm();
+  }
 }
 
 async function loadSettings() {
