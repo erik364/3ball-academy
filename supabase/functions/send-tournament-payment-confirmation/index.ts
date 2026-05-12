@@ -107,78 +107,117 @@ serve(async (req) => {
         { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
-    if (!player.parent_id) {
-      console.warn(`player ${player.id} has no parent_id; cannot email`);
+    // Fan out: collect all linked parent_ids via parent_players. Fall back
+    // to players.parent_id if no rows exist (defensive — registration writes
+    // both since Phase 2).
+    const { data: links, error: linkErr } = await sb
+      .from("parent_players")
+      .select("parent_id")
+      .eq("player_id", player.id);
+    if (linkErr) {
+      console.error("parent_players lookup failed:", linkErr);
+    }
+    let parentIds = (links || []).map((l: any) => l.parent_id).filter(Boolean);
+    if (parentIds.length === 0 && player.parent_id) {
+      console.warn(`parent_players empty for player ${player.id}; falling back to players.parent_id`);
+      parentIds = [player.parent_id];
+    }
+    if (parentIds.length === 0) {
+      console.warn(`player ${player.id} has no linked parents; cannot email`);
       return new Response(
-        JSON.stringify({ ok: true, sent: 0, note: "Player has no parent on file" }),
+        JSON.stringify({ ok: true, sent: 0, note: "Player has no linked parents" }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
-    const { data: parent, error: parErr } = await sb
+    const { data: parents, error: parErr } = await sb
       .from("parents")
       .select("id, first, email")
-      .eq("id", player.parent_id)
-      .single();
-    if (parErr || !parent || !parent.email) {
-      console.warn(`parent for player ${player.id} has no email or row`);
+      .in("id", parentIds);
+    if (parErr) {
+      console.error("parents lookup failed:", parErr);
       return new Response(
-        JSON.stringify({ ok: true, sent: 0, note: "Parent has no email on file" }),
+        JSON.stringify({ error: "Parents lookup failed", details: parErr }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+    const recipients = (parents || []).filter((p: any) => p && p.email);
+    if (recipients.length === 0) {
+      console.warn(`No linked parents with email on file for player ${player.id}`);
+      return new Response(
+        JSON.stringify({ ok: true, sent: 0, note: "No linked parents have an email on file" }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
     const dateRange = fmtDateRange(tournament.start_date, tournament.end_date);
-
     const subject = `Payment received for ${player.first} — ${tournament.name}`;
-    const text = `Hi ${parent.first || "there"},
+
+    // 3. Fan-out send. Separate sends per parent — no TO+CC.
+    let sent = 0;
+    const results: any[] = [];
+    for (const recipient of recipients) {
+      const text = `Hi ${recipient.first || "there"},
 
 We've received the tournament fee for ${player.first} ${player.last} for ${tournament.name} (${dateRange}).
 
 ${player.first} is all set for the tournament.
 
 — 3Ball Academy`;
+      try {
+        const resp = await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${RESEND_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            from: FROM_EMAIL,
+            to: [recipient.email],
+            reply_to: REPLY_TO,
+            subject,
+            text,
+          }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          console.error(`Resend failed: tournament_id=${tournament_id} player_id=${player_id} to=${recipient.email} err=`, data);
+          results.push({ parent_id: recipient.id, to: recipient.email, ok: false, error: data });
+        } else {
+          sent++;
+          results.push({ parent_id: recipient.id, to: recipient.email, ok: true, id: data.id });
+        }
+      } catch (e) {
+        console.error(`Send threw: tournament_id=${tournament_id} player_id=${player_id} to=${recipient.email} err=`, e);
+        results.push({ parent_id: recipient.id, to: recipient.email, ok: false, error: String(e) });
+      }
+    }
 
-    // 3. Send.
-    const resp = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${RESEND_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: FROM_EMAIL,
-        to: [parent.email],
-        reply_to: REPLY_TO,
-        subject,
-        text,
-      }),
-    });
-    const data = await resp.json();
-    if (!resp.ok) {
-      console.error(`Resend failed: tournament_id=${tournament_id} player_id=${player_id} to=${parent.email} err=`, data);
+    if (sent === 0) {
+      // No one received the email — don't stamp confirmation_sent_at so a
+      // retry next time the admin marks paid still has a chance.
       return new Response(
-        JSON.stringify({ error: "Resend API failed", details: data }),
+        JSON.stringify({ ok: false, sent: 0, attempted: recipients.length, results }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
-    // 4. Stamp confirmation_sent_at so we never re-fire.
+    // 4. At least one recipient succeeded — stamp confirmation_sent_at so
+    //    subsequent toggles don't re-fire the email.
     const { error: updErr } = await sb
       .from("tournament_payments")
       .update({ confirmation_sent_at: new Date().toISOString() })
       .eq("id", paymentRow.id);
     if (updErr) {
       console.error("Failed to stamp confirmation_sent_at:", updErr);
-      // Don't fail the response — email already sent. Return success with a warning note.
       return new Response(
-        JSON.stringify({ ok: true, sent: 1, id: data.id, warning: "email sent but confirmation_sent_at stamp failed" }),
+        JSON.stringify({ ok: true, sent, attempted: recipients.length, results, warning: "email sent but confirmation_sent_at stamp failed" }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
     return new Response(
-      JSON.stringify({ ok: true, sent: 1, id: data.id, to: parent.email }),
+      JSON.stringify({ ok: true, sent, attempted: recipients.length, results }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (err) {
