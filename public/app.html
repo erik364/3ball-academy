@@ -1777,6 +1777,7 @@ let state = {
   tournamentRsvps: [],
   tournamentPayments: [],
   groups: [],
+  parentInvites: [],
   tournamentGameRsvps: [],
   parents: [],
   players: [],
@@ -2428,7 +2429,7 @@ function doLogin() {
       err.textContent = 'Invalid email or password.';
       return;
     }
-   Promise.all([loadCoaches(), loadParents(), loadPlayers(), loadPlayerNotes(), loadSchedule(), loadSettings(), loadGroups()]).then(function() {
+   Promise.all([loadCoaches(), loadParents(), loadPlayers(), loadPlayerNotes(), loadSchedule(), loadSettings(), loadGroups(), loadParentInvites()]).then(function() {
       var resolved = resolveSupabaseUser(result.data.user);
       if (!resolved) {
         err.textContent = 'Account exists but no role is assigned. Contact your admin.';
@@ -2647,7 +2648,7 @@ function submitNewPassword() {
   sb.auth.getSession().then(function(result) {
     var session = result.data && result.data.session;
     if (!session || !session.user) return;
-    Promise.all([loadCoaches(), loadParents(), loadPlayers(), loadPlayerNotes(), loadSchedule(), loadSettings(), loadGroups()]).then(function() {
+    Promise.all([loadCoaches(), loadParents(), loadPlayers(), loadPlayerNotes(), loadSchedule(), loadSettings(), loadGroups(), loadParentInvites()]).then(function() {
         var resolved = resolveSupabaseUser(session.user);
         if (!resolved) return;
         // Gate unapproved parents
@@ -5628,6 +5629,119 @@ async function setGameRsvp(gameId, playerId, answer) {
   }
 }
 
+// ===== CO-PARENT INVITES =====
+// Cryptographically random URL-safe token (base64url, 32 bytes).
+function generateInviteToken() {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function inviteUrlFor(token) {
+  return window.location.origin + '/?invite=' + encodeURIComponent(token);
+}
+
+async function loadParentInvites() {
+  if (!sb || !state.currentParent) { state.parentInvites = []; return; }
+  try {
+    const { data, error } = await sb.from('parent_invites')
+      .select('*')
+      .eq('inviting_parent_id', state.currentParent.id);
+    if (error) { console.error('loadParentInvites error:', error); state.parentInvites = []; return; }
+    state.parentInvites = (data || []).map(function(row) {
+      return {
+        id: row.id,
+        token: row.token,
+        playerId: row.player_id,
+        invitingParentId: row.inviting_parent_id,
+        usedAt: row.used_at || null,
+        consumedByParentId: row.consumed_by_parent_id || null,
+        expiresAt: row.expires_at,
+        createdAt: row.created_at
+      };
+    });
+  } catch (e) { console.error('loadParentInvites threw:', e); state.parentInvites = []; }
+}
+
+// Generate a new invite for a player. If an unused, non-expired invite
+// already exists for this (parent, player) pair, invalidate it first by
+// setting expires_at to now() — keeps one active invite per pair at most.
+async function generateInviteForPlayer(playerId) {
+  if (!sb || !state.currentParent) return null;
+  try {
+    const nowIso = new Date().toISOString();
+    // Invalidate any active invite for this pair
+    await sb.from('parent_invites')
+      .update({ expires_at: nowIso })
+      .eq('inviting_parent_id', state.currentParent.id)
+      .eq('player_id', playerId)
+      .is('used_at', null)
+      .gt('expires_at', nowIso);
+    const token = generateInviteToken();
+    const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    const { data, error } = await sb.from('parent_invites').insert({
+      inviting_parent_id: state.currentParent.id,
+      player_id: playerId,
+      token: token,
+      expires_at: expires
+    }).select().single();
+    if (error) { console.error('generateInviteForPlayer error:', error); return null; }
+    return {
+      id: data.id,
+      token: data.token,
+      playerId: data.player_id,
+      expiresAt: data.expires_at,
+      url: inviteUrlFor(data.token)
+    };
+  } catch (e) { console.error('generateInviteForPlayer threw:', e); return null; }
+}
+
+async function clickGenerateInvite(playerId) {
+  const result = await generateInviteForPlayer(playerId);
+  if (!result) { toast('Could not create invite.'); return; }
+  await loadParentInvites();
+  renderParentAccount();
+  // Try to copy automatically and show the URL via toast for convenience.
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    try { await navigator.clipboard.writeText(result.url); toast('Invite link copied to clipboard'); return; } catch (_) {}
+  }
+  toast('Invite created — click Copy to copy the link');
+}
+
+async function clickRegenerateInvite(playerId) {
+  if (!confirm('Regenerate the invite link? The old link will stop working.')) return;
+  await clickGenerateInvite(playerId);
+}
+
+async function clickCopyInvite(token) {
+  const url = inviteUrlFor(token);
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    try { await navigator.clipboard.writeText(url); toast('Invite link copied'); return; } catch (_) {}
+  }
+  window.prompt('Copy this invite URL:', url);
+}
+
+function inviteStatusFor(playerId) {
+  // Active (not used, not expired) takes precedence; otherwise show latest
+  // recorded state to drive the "claimed" / "expired" copy.
+  const nowIso = new Date().toISOString();
+  const active = state.parentInvites.find(function(inv) {
+    return inv.playerId === playerId && !inv.usedAt && inv.expiresAt > nowIso;
+  });
+  if (active) return { state: 'active', invite: active };
+  const claimed = state.parentInvites
+    .filter(function(inv) { return inv.playerId === playerId && inv.usedAt; })
+    .sort(function(a, b) { return b.usedAt.localeCompare(a.usedAt); })[0];
+  if (claimed) return { state: 'claimed', invite: claimed };
+  const expired = state.parentInvites
+    .filter(function(inv) { return inv.playerId === playerId && !inv.usedAt && inv.expiresAt <= nowIso; })
+    .sort(function(a, b) { return b.expiresAt.localeCompare(a.expiresAt); })[0];
+  if (expired) return { state: 'expired', invite: expired };
+  return { state: 'none', invite: null };
+}
+
 // ===== PARENT ACCOUNT MANAGEMENT =====
 function renderParentAccount() {
   const parent = state.currentParent;
@@ -5675,8 +5789,43 @@ function renderParentAccount() {
           ${p.photo?`<button class="btn btn-sm btn-danger" onclick="removePlayerPhoto('${p.id}')">Remove</button>`:''}
         </label>
       </div>
+      ${renderCoParentAccessSection(p)}
     </div>`;
   }).join('') : '<div class="empty"><div class="empty-icon">👥</div><div class="empty-text">No players added yet</div></div>';
+}
+
+function renderCoParentAccessSection(player) {
+  const status = inviteStatusFor(player.id);
+  let body = '';
+  if (status.state === 'active') {
+    const expDate = new Date(status.invite.expiresAt);
+    body = `
+      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;">
+        Invite pending — expires ${expDate.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })}
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button class="btn btn-sm" onclick="clickCopyInvite('${status.invite.token}')">Copy Link</button>
+        <button class="btn btn-sm" onclick="clickRegenerateInvite('${player.id}')">Regenerate</button>
+      </div>`;
+  } else if (status.state === 'claimed') {
+    body = `
+      <div style="font-size:12px;color:var(--teal-dark);margin-bottom:6px;">✓ Invite claimed</div>
+      <button class="btn btn-sm" onclick="clickGenerateInvite('${player.id}')">Generate New Invite</button>`;
+  } else if (status.state === 'expired') {
+    body = `
+      <div style="font-size:12px;color:#A32D2D;margin-bottom:6px;">Invite expired</div>
+      <button class="btn btn-sm" onclick="clickGenerateInvite('${player.id}')">Generate New Invite</button>`;
+  } else {
+    body = `<button class="btn btn-sm" onclick="clickGenerateInvite('${player.id}')">Generate Invite Link</button>`;
+  }
+  return `
+    <div style="margin-top:10px;padding:10px 12px;background:var(--gray-bg);border-radius:6px;">
+      <div style="font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">
+        Co-Parent Access for ${player.first}
+      </div>
+      ${body}
+    </div>
+  `;
 }
 
 function saveParentInfo() {
