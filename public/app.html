@@ -726,6 +726,10 @@ body:not([data-role="admin"]) .btn.admin-only {
         <div class="form-group"><label class="form-label">Your Email (used to log in)</label><input class="form-input" id="reg-email" type="email" placeholder="parent@email.com"></div>
         <div class="form-group"><label class="form-label">Password</label><input class="form-input" id="reg-pass" type="password" placeholder="Min 6 characters"></div>
         <div class="form-group"><label class="form-label">Phone</label><input class="form-input" id="reg-phone" placeholder="(805) 555-0100"></div>
+        <div style="margin-top:8px;padding:10px 12px;background:var(--gray-bg);border-radius:6px;font-size:13px;line-height:1.5;color:var(--text-secondary);">
+          Is someone in your family already using 3Ball Academy?
+          <a href="javascript:void(0);" onclick="useInviteLinkPrompt()" style="color:var(--orange);font-weight:600;text-decoration:none;">Already in your family? Use invite link</a>
+        </div>
       </div>
       <!-- STEP 2: Add Players -->
       <div id="reg-step-2-players" style="display:none;">
@@ -2101,6 +2105,23 @@ async function submitInviteConsume() {
     console.error('submitInviteConsume threw:', e);
     inviteConsumeError('Something went wrong. Please try again.');
   }
+}
+
+// Parse an invite URL or raw token from a user-supplied string and route to
+// the consume flow.
+function useInviteLinkPrompt() {
+  const raw = window.prompt('Paste your invite link or token:');
+  if (!raw) return;
+  let token = raw.trim();
+  try {
+    if (token.indexOf('://') !== -1 || token.indexOf('?') !== -1 || token.indexOf('=') !== -1) {
+      const u = token.indexOf('://') !== -1 ? new URL(token) : new URL('https://placeholder/' + (token.startsWith('?') ? token : '?' + token));
+      const parsed = u.searchParams.get('invite');
+      if (parsed) token = parsed;
+    }
+  } catch (_) { /* fall through with original token */ }
+  if (!token) { alert('Could not find an invite token in that input.'); return; }
+  window.location.href = window.location.origin + '/?invite=' + encodeURIComponent(token);
 }
 
 // Run BEFORE the normal app bootstrap so users on an invite URL don't see the
