@@ -3027,7 +3027,11 @@ async function regNext() {
         return;
       }
 
-      if (players.length > 0) {
+      // Insert players, then mirror each linkage into parent_players (Phase 2
+       // invariant), then generate one invite per kid for the registration email.
+       const kidInviteLinks = [];
+       let insertedPlayers = [];
+       if (players.length > 0) {
         const playerRows = players.map(function(p) {
           return {
             parent_id: newUserId,
@@ -3039,10 +3043,47 @@ async function regNext() {
             waiver_signed_at: new Date().toISOString()
           };
         });
-        const { error: playerError } = await sb.from('players').insert(playerRows);
+        const { data: insertedData, error: playerError } = await sb.from('players').insert(playerRows).select();
         if (playerError) {
           console.error('player insert error:', playerError);
           alert('Account created but player setup had errors: ' + playerError.message + '. Please contact support.');
+        }
+        insertedPlayers = insertedData || [];
+
+        // parent_players: mirror each new linkage so the Phase 1 join-table
+        // invariant is maintained for future flows.
+        if (insertedPlayers.length > 0) {
+          const ppRows = insertedPlayers.map(function(pl) {
+            return { parent_id: newUserId, player_id: pl.id, is_primary: true };
+          });
+          const { error: ppErr } = await sb.from('parent_players').insert(ppRows);
+          if (ppErr) {
+            console.error('parent_players insert error (non-blocking):', ppErr);
+          }
+        }
+
+        // Generate one invite per new kid so the registration email can
+        // include co-parent links. RLS allows this insert because
+        // inviting_parent_id = auth.uid() for the freshly signed-up parent.
+        for (let i = 0; i < insertedPlayers.length; i++) {
+          const pl = insertedPlayers[i];
+          try {
+            const token = generateInviteToken();
+            const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+            const { error: invErr } = await sb.from('parent_invites').insert({
+              inviting_parent_id: newUserId,
+              player_id: pl.id,
+              token: token,
+              expires_at: expires
+            });
+            if (invErr) {
+              console.error('invite insert error for ' + pl.first + ':', invErr);
+              continue;
+            }
+            kidInviteLinks.push({ first_name: pl.first, url: inviteUrlFor(token) });
+          } catch (e) {
+            console.error('invite generation threw for ' + pl.first + ':', e);
+          }
         }
       }
 
@@ -3053,7 +3094,7 @@ async function regNext() {
 
       try {
         const { data: emailData, error: emailError } = await sb.functions.invoke('send-registration-confirmation', {
-          body: { email: email, first: first },
+          body: { email: email, first: first, kid_invite_links: kidInviteLinks },
         });
         if (emailError) {
           console.error('Registration confirmation email failed:', emailError);
@@ -3297,7 +3338,7 @@ async function approveParent(parentId) {
     toast(`Approved ${p.first} ${p.last}.`);
     try {
       const { data: emailData, error: emailError } = await sb.functions.invoke('send-welcome-email', {
-        body: { email: p.email, first: p.first },
+        body: { email: p.email, first: p.first, parent_user_id: p.id },
       });
       if (emailError) {
         console.error('Welcome email failed:', emailError);
