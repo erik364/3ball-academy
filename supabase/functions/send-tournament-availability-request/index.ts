@@ -204,7 +204,28 @@ serve(async (req) => {
       );
     }
 
-    const parentIds = [...new Set(players.map((p: any) => p.parent_id).filter(Boolean))];
+    // Phase 3 fan-out via parent_players, falling back per-player to
+    // players.parent_id if no link rows exist.
+    const playerIdsAll = players.map((p: any) => p.id);
+    const { data: links, error: linkErr } = await sb
+      .from("parent_players")
+      .select("player_id, parent_id")
+      .in("player_id", playerIdsAll);
+    if (linkErr) {
+      console.error("parent_players lookup failed:", linkErr);
+    }
+    const playerToParentIds = new Map<string, string[]>();
+    (links || []).forEach((l: any) => {
+      if (!playerToParentIds.has(l.player_id)) playerToParentIds.set(l.player_id, []);
+      playerToParentIds.get(l.player_id)!.push(l.parent_id);
+    });
+    for (const p of players) {
+      if (!playerToParentIds.has(p.id) && p.parent_id) {
+        console.warn(`parent_players empty for player ${p.id}; falling back to players.parent_id`);
+        playerToParentIds.set(p.id, [p.parent_id]);
+      }
+    }
+    const parentIds = [...new Set(Array.from(playerToParentIds.values()).flat())];
     const { data: parents, error: parErr } = await sb
       .from("parents")
       .select("id, first, email, status")
@@ -227,7 +248,10 @@ serve(async (req) => {
     const results: any[] = [];
 
     for (const player of players) {
-      const parent = parentMap.get(player.parent_id);
+      const linkedParentIds = playerToParentIds.get(player.id) || [];
+      if (linkedParentIds.length === 0) { skipped++; continue; }
+      for (const pid of linkedParentIds) {
+      const parent = parentMap.get(pid);
       if (!parent || !parent.email) {
         skipped++;
         continue;
@@ -265,14 +289,15 @@ serve(async (req) => {
         const data = await resp.json();
         if (!resp.ok) {
           console.error(`Resend failed for ${parent.email}:`, data);
-          results.push({ to: parent.email, ok: false, error: data });
+          results.push({ player_id: player.id, parent_id: pid, to: parent.email, ok: false, error: data });
         } else {
           sent++;
-          results.push({ to: parent.email, ok: true, id: data.id });
+          results.push({ player_id: player.id, parent_id: pid, to: parent.email, ok: true, id: data.id });
         }
       } catch (e) {
         console.error(`Send threw for ${parent.email}:`, e);
-        results.push({ to: parent.email, ok: false, error: String(e) });
+        results.push({ player_id: player.id, parent_id: pid, to: parent.email, ok: false, error: String(e) });
+      }
       }
     }
 
