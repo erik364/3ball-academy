@@ -13,8 +13,45 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-function buildHtml(first: string): string {
+function escapeAttr(s: string): string {
+  return String(s || "").replace(/[<>&"]/g, "");
+}
+
+type KidInvite = { first_name: string; url: string };
+
+function buildInviteSectionHtml(kidInviteLinks: KidInvite[]): string {
+  if (!kidInviteLinks || kidInviteLinks.length === 0) return "";
+  const rows = kidInviteLinks.map((k) => `
+    <tr>
+      <td style="padding:8px 0;">
+        <div style="font-size:14px;font-weight:600;color:#1A2E1A;">${escapeAttr(k.first_name)}'s account:</div>
+        <a href="${escapeAttr(k.url)}" style="font-size:13px;color:#E8621A;word-break:break-all;">${escapeAttr(k.url)}</a>
+      </td>
+    </tr>
+  `).join("");
+  return `
+    <div style="margin:24px 0 0 0;padding:16px;background:#F4F6F2;border-radius:8px;">
+      <p style="margin:0 0 8px 0;font-size:15px;font-weight:600;color:#1A2E1A;">Share access with a co-parent?</p>
+      <p style="margin:0 0 12px 0;font-size:13px;line-height:1.5;color:#5F5E5A;">
+        If your partner or another co-parent should also have access, share these invite links:
+      </p>
+      <table width="100%" cellpadding="0" cellspacing="0">${rows}</table>
+      <p style="margin:12px 0 0 0;font-size:12px;color:#888780;font-style:italic;">
+        Each link is valid for 7 days and works once.
+      </p>
+    </div>
+  `;
+}
+
+function buildInviteSectionText(kidInviteLinks: KidInvite[]): string {
+  if (!kidInviteLinks || kidInviteLinks.length === 0) return "";
+  const lines = kidInviteLinks.map((k) => `  ${k.first_name}'s account:\n  ${k.url}`).join("\n\n");
+  return `\n\nIf your partner or another co-parent should also have access to your child's account, you can share these invite links with them:\n\n${lines}\n\nThese invite links are valid for 7 days. Each link works once.`;
+}
+
+function buildHtml(first: string, kidInviteLinks: KidInvite[]): string {
   const safeFirst = (first || "there").replace(/[<>&"]/g, "");
+  const inviteHtml = buildInviteSectionHtml(kidInviteLinks);
   return `<!DOCTYPE html>
 <html>
   <head>
@@ -44,7 +81,8 @@ function buildHtml(first: string): string {
                 <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;color:#1A2E1A;">
                   Once approved, you'll get a follow-up email with a link to sign in and access your kid's schedule, RSVP for practices and tournaments, and stay connected with the team.
                 </p>
-                <p style="margin:0 0 32px 0;font-size:16px;line-height:1.6;color:#1A2E1A;">
+                ${inviteHtml}
+                <p style="margin:24px 0 32px 0;font-size:16px;line-height:1.6;color:#1A2E1A;">
                   If you have any questions in the meantime, just reply to this email.
                 </p>
                 <p style="margin:0;font-size:15px;line-height:1.6;color:#5F5E5A;">
@@ -67,13 +105,14 @@ function buildHtml(first: string): string {
 </html>`;
 }
 
-function buildText(first: string): string {
+function buildText(first: string, kidInviteLinks: KidInvite[]): string {
   const safeFirst = first || "there";
+  const inviteText = buildInviteSectionText(kidInviteLinks);
   return `Hi ${safeFirst},
 
 Thanks for registering with 3Ball Academy! Your account is being reviewed and you'll typically hear back within 24 hours.
 
-Once approved, you'll get a follow-up email with a link to sign in and access your kid's schedule, RSVP for practices and tournaments, and stay connected with the team.
+Once approved, you'll get a follow-up email with a link to sign in and access your kid's schedule, RSVP for practices and tournaments, and stay connected with the team.${inviteText}
 
 If you have any questions in the meantime, just reply to this email.
 
@@ -88,7 +127,10 @@ serve(async (req) => {
   }
 
   try {
-    const { email, first } = await req.json();
+    const body = await req.json();
+    const email: string = body.email;
+    const first: string = body.first || body.first_name || "";
+    const kidInviteLinks: KidInvite[] = Array.isArray(body.kid_invite_links) ? body.kid_invite_links : [];
 
     if (!email) {
       return new Response(
@@ -115,8 +157,8 @@ serve(async (req) => {
         to: [email],
         reply_to: REPLY_TO,
         subject: "Registration received — 3Ball Academy",
-        html: buildHtml(first),
-        text: buildText(first),
+        html: buildHtml(first, kidInviteLinks),
+        text: buildText(first, kidInviteLinks),
       }),
     });
 
