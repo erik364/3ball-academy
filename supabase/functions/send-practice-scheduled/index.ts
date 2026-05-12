@@ -164,8 +164,35 @@ async function loadAudience(sb: any, teamCodes: string[]) {
     .not("active", "is", false);
   if (plErr) throw plErr;
 
-  const parentIds = [...new Set((players || []).map((p: any) => p.parent_id).filter(Boolean))];
-  if (parentIds.length === 0) return { players: players || [], parentMap: new Map() };
+  // Phase 3 fan-out: resolve via parent_players. Falls back to
+  // players.parent_id per player when no link rows exist.
+  const playerIds = (players || []).map((p: any) => p.id);
+  const playerToParentIds = new Map<string, string[]>();
+  if (playerIds.length > 0) {
+    const { data: links, error: linkErr } = await sb
+      .from("parent_players")
+      .select("player_id, parent_id")
+      .in("player_id", playerIds);
+    if (linkErr) {
+      console.error("parent_players lookup failed:", linkErr);
+    } else {
+      (links || []).forEach((l: any) => {
+        if (!playerToParentIds.has(l.player_id)) playerToParentIds.set(l.player_id, []);
+        playerToParentIds.get(l.player_id)!.push(l.parent_id);
+      });
+    }
+    for (const p of (players || [])) {
+      if (!playerToParentIds.has(p.id) && p.parent_id) {
+        console.warn(`parent_players empty for player ${p.id}; falling back to players.parent_id`);
+        playerToParentIds.set(p.id, [p.parent_id]);
+      }
+    }
+  }
+
+  const parentIds = [...new Set(Array.from(playerToParentIds.values()).flat())];
+  if (parentIds.length === 0) {
+    return { players: players || [], parentMap: new Map<string, any>(), playerToParentIds };
+  }
 
   const { data: parents, error: parErr } = await sb
     .from("parents")
@@ -176,7 +203,7 @@ async function loadAudience(sb: any, teamCodes: string[]) {
 
   const parentMap = new Map<string, any>();
   (parents || []).forEach((p: any) => parentMap.set(p.id, p));
-  return { players: players || [], parentMap };
+  return { players: players || [], parentMap, playerToParentIds };
 }
 
 async function sendResend(payload: any) {
@@ -337,7 +364,7 @@ serve(async (req) => {
       );
     }
 
-    const { players, parentMap } = await loadAudience(sb, groups);
+    const { players, parentMap, playerToParentIds } = await loadAudience(sb, groups);
     if (!players.length) {
       return new Response(
         JSON.stringify({ ok: true, sent: 0, note: "No active players on these teams." }),
@@ -358,40 +385,47 @@ serve(async (req) => {
     const results: any[] = [];
 
     for (const player of players) {
-      const parent = parentMap.get(player.parent_id);
-      if (!parent || !parent.email) {
+      const linkedParentIds = (playerToParentIds && playerToParentIds.get(player.id)) || [];
+      if (linkedParentIds.length === 0) {
         skipped++;
         continue;
       }
-      const emailArgs = {
-        parentFirst: parent.first || "there",
-        playerFirst: player.first || "your player",
-        teamName: player.team || "",
-        dateLong,
-        timeRange,
-        location: practice.location || "",
-      };
-      const subject = `Practice scheduled for ${player.first} — ${dateShort} at ${timeStart}`;
-      try {
-        const resp = await sendResend({
-          from: FROM_EMAIL,
-          to: [parent.email],
-          reply_to: REPLY_TO,
-          subject,
-          html: buildOneOffHtml(emailArgs),
-          text: buildOneOffText(emailArgs),
-        });
-        const data = await resp.json();
-        if (!resp.ok) {
-          console.error(`one_off resend failed for ${parent.email}:`, data);
-          results.push({ to: parent.email, ok: false, error: data });
-        } else {
-          sent++;
-          results.push({ to: parent.email, ok: true, id: data.id });
+      for (const pid of linkedParentIds) {
+        const parent = parentMap.get(pid);
+        if (!parent || !parent.email) {
+          skipped++;
+          continue;
         }
-      } catch (e) {
-        console.error(`one_off send threw for ${parent.email}:`, e);
-        results.push({ to: parent.email, ok: false, error: String(e) });
+        const emailArgs = {
+          parentFirst: parent.first || "there",
+          playerFirst: player.first || "your player",
+          teamName: player.team || "",
+          dateLong,
+          timeRange,
+          location: practice.location || "",
+        };
+        const subject = `Practice scheduled for ${player.first} — ${dateShort} at ${timeStart}`;
+        try {
+          const resp = await sendResend({
+            from: FROM_EMAIL,
+            to: [parent.email],
+            reply_to: REPLY_TO,
+            subject,
+            html: buildOneOffHtml(emailArgs),
+            text: buildOneOffText(emailArgs),
+          });
+          const data = await resp.json();
+          if (!resp.ok) {
+            console.error(`one_off resend failed for ${parent.email}:`, data);
+            results.push({ player_id: player.id, parent_id: pid, to: parent.email, ok: false, error: data });
+          } else {
+            sent++;
+            results.push({ player_id: player.id, parent_id: pid, to: parent.email, ok: true, id: data.id });
+          }
+        } catch (e) {
+          console.error(`one_off send threw for ${parent.email}:`, e);
+          results.push({ player_id: player.id, parent_id: pid, to: parent.email, ok: false, error: String(e) });
+        }
       }
     }
 
