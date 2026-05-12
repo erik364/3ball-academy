@@ -50,16 +50,16 @@ function fmtTime(t: string): string {
 }
 
 function buildOneOffHtml(args: {
-  parentFirst: string; playerFirst: string; teamName: string;
+  parentFirst: string; teamName: string;
   dateLong: string; timeRange: string; location: string;
 }): string {
-  const { parentFirst, playerFirst, teamName, dateLong, timeRange, location } = args;
+  const { parentFirst, teamName, dateLong, timeRange, location } = args;
   return `<!DOCTYPE html>
 <html>
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Practice scheduled for ${escapeHtml(playerFirst)}</title>
+    <title>Practice scheduled — ${escapeHtml(teamName)}</title>
   </head>
   <body style="margin:0;padding:0;background:#F4F6F2;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#1A2E1A;">
     <table width="100%" cellpadding="0" cellspacing="0" style="background:#F4F6F2;padding:40px 20px;">
@@ -73,29 +73,22 @@ function buildOneOffHtml(args: {
           <tr>
             <td style="padding:36px 32px 24px 32px;">
               <h1 style="margin:0 0 16px 0;font-size:22px;color:#1A2E1A;">Hi ${escapeHtml(parentFirst)},</h1>
-              <p style="margin:0 0 24px 0;font-size:16px;line-height:1.6;color:#1A2E1A;">
-                A new practice has been scheduled for <strong>${escapeHtml(playerFirst)}</strong> on <strong>${escapeHtml(teamName)}</strong>.
+              <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;color:#1A2E1A;">
+                A new <strong>${escapeHtml(teamName)}</strong> practice is on the schedule:
               </p>
 
               <table width="100%" cellpadding="0" cellspacing="0" style="background:#F4F6F2;border-radius:8px;padding:16px;margin:0 0 24px 0;">
-                <tr><td style="padding:6px 0;"><strong>Date:</strong> ${escapeHtml(dateLong)}</td></tr>
-                <tr><td style="padding:6px 0;"><strong>Time:</strong> ${escapeHtml(timeRange)}</td></tr>
-                <tr><td style="padding:6px 0;"><strong>Location:</strong> ${escapeHtml(location || "TBD")}</td></tr>
-                <tr><td style="padding:6px 0;"><strong>Team:</strong> ${escapeHtml(teamName)}</td></tr>
+                <tr><td style="padding:6px 0;"><strong>${escapeHtml(dateLong)}</strong></td></tr>
+                <tr><td style="padding:6px 0;">${escapeHtml(timeRange)}</td></tr>
+                <tr><td style="padding:6px 0;">${escapeHtml(location || "TBD")}</td></tr>
               </table>
 
-              <table cellpadding="0" cellspacing="0" style="margin:0 auto 24px auto;">
-                <tr>
-                  <td style="background:#E8621A;border-radius:8px;">
-                    <a href="${APP_URL}" style="display:inline-block;padding:14px 32px;font-size:16px;font-weight:600;color:#ffffff;text-decoration:none;">RSVP Now</a>
-                  </td>
-                </tr>
-              </table>
+              <p style="margin:0 0 24px 0;font-size:15px;line-height:1.6;color:#5F5E5A;">
+                You can see all your child's practices in the 3Ball app under the Calendar tab.
+              </p>
 
               <p style="margin:0;font-size:15px;line-height:1.6;color:#5F5E5A;">
-                See you on the court,<br>
-                Mike Wozniak<br>
-                3Ball Academy
+                — 3Ball Academy
               </p>
             </td>
           </tr>
@@ -112,23 +105,19 @@ function buildOneOffHtml(args: {
 }
 
 function buildOneOffText(args: {
-  parentFirst: string; playerFirst: string; teamName: string;
+  parentFirst: string; teamName: string;
   dateLong: string; timeRange: string; location: string;
 }): string {
   return `Hi ${args.parentFirst},
 
-A new practice has been scheduled for ${args.playerFirst} on ${args.teamName}.
+A new ${args.teamName} practice is on the schedule:
+${args.dateLong}
+${args.timeRange}
+${args.location || "TBD"}
 
-Date: ${args.dateLong}
-Time: ${args.timeRange}
-Location: ${args.location || "TBD"}
-Team: ${args.teamName}
+You can see all your child's practices in the 3Ball app under the Calendar tab.
 
-RSVP Now: ${APP_URL}
-
-See you on the court,
-Mike Wozniak
-3Ball Academy`;
+— 3Ball Academy`;
 }
 
 function buildSeriesCreateText(parentFirst: string, sc: any): string {
@@ -139,7 +128,7 @@ ${sc.day_of_week}s, ${sc.time}
 ${sc.location}
 From ${fmtFullDate(sc.start_date)} through ${fmtFullDate(sc.end_date)} (${sc.occurrence_count} practices total)
 
-You can RSVP to each practice in the 3Ball app under the Practices tab.
+Check the Calendar tab in the 3Ball app for the full schedule.
 
 — 3Ball Academy`;
 }
@@ -151,7 +140,7 @@ Heads up — the ${se.team_name} practice schedule has been updated. Starting ${
 
 ${se.changes_summary}
 
-Check the Practices tab in the 3Ball app for the latest details.
+Check the Calendar tab in the 3Ball app for the latest details.
 
 — 3Ball Academy`;
 }
@@ -384,48 +373,47 @@ serve(async (req) => {
     let skipped = 0;
     const results: any[] = [];
 
+    // Practice body is team-level (no kid name) now that RSVP is gone, so
+    // dedupe to one email per unique parent across all kids on the practice
+    // team(s). Skip players with no linked parents.
+    const teamLabel = (groups || []).join(", ");
+    const uniqueParentIds = new Set<string>();
     for (const player of players) {
-      const linkedParentIds = (playerToParentIds && playerToParentIds.get(player.id)) || [];
-      if (linkedParentIds.length === 0) {
-        skipped++;
-        continue;
-      }
-      for (const pid of linkedParentIds) {
-        const parent = parentMap.get(pid);
-        if (!parent || !parent.email) {
-          skipped++;
-          continue;
+      const linked = (playerToParentIds && playerToParentIds.get(player.id)) || [];
+      if (linked.length === 0) { skipped++; continue; }
+      linked.forEach(pid => uniqueParentIds.add(pid));
+    }
+    for (const pid of uniqueParentIds) {
+      const parent = parentMap.get(pid);
+      if (!parent || !parent.email) { skipped++; continue; }
+      const emailArgs = {
+        parentFirst: parent.first || "there",
+        teamName: teamLabel,
+        dateLong,
+        timeRange,
+        location: practice.location || "",
+      };
+      const subject = `Practice scheduled — ${teamLabel} on ${dateShort}`;
+      try {
+        const resp = await sendResend({
+          from: FROM_EMAIL,
+          to: [parent.email],
+          reply_to: REPLY_TO,
+          subject,
+          html: buildOneOffHtml(emailArgs),
+          text: buildOneOffText(emailArgs),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          console.error(`one_off resend failed for ${parent.email}:`, data);
+          results.push({ parent_id: pid, to: parent.email, ok: false, error: data });
+        } else {
+          sent++;
+          results.push({ parent_id: pid, to: parent.email, ok: true, id: data.id });
         }
-        const emailArgs = {
-          parentFirst: parent.first || "there",
-          playerFirst: player.first || "your player",
-          teamName: player.team || "",
-          dateLong,
-          timeRange,
-          location: practice.location || "",
-        };
-        const subject = `Practice scheduled for ${player.first} — ${dateShort} at ${timeStart}`;
-        try {
-          const resp = await sendResend({
-            from: FROM_EMAIL,
-            to: [parent.email],
-            reply_to: REPLY_TO,
-            subject,
-            html: buildOneOffHtml(emailArgs),
-            text: buildOneOffText(emailArgs),
-          });
-          const data = await resp.json();
-          if (!resp.ok) {
-            console.error(`one_off resend failed for ${parent.email}:`, data);
-            results.push({ player_id: player.id, parent_id: pid, to: parent.email, ok: false, error: data });
-          } else {
-            sent++;
-            results.push({ player_id: player.id, parent_id: pid, to: parent.email, ok: true, id: data.id });
-          }
-        } catch (e) {
-          console.error(`one_off send threw for ${parent.email}:`, e);
-          results.push({ player_id: player.id, parent_id: pid, to: parent.email, ok: false, error: String(e) });
-        }
+      } catch (e) {
+        console.error(`one_off send threw for ${parent.email}:`, e);
+        results.push({ parent_id: pid, to: parent.email, ok: false, error: String(e) });
       }
     }
 
