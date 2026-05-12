@@ -974,7 +974,7 @@ body:not([data-role="admin"]) .btn.admin-only {
             <div class="table-wrap">
               <table>
                 <thead><tr>
-                  <th>Date & Time</th><th>Groups</th><th>Location</th><th>RSVP</th><th>Status</th><th></th>
+                  <th>Date & Time</th><th>Groups</th><th>Location</th><th>Checked In</th><th>Status</th><th></th>
                 </tr></thead>
                 <tbody id="practices-table"></tbody>
               </table>
@@ -1869,12 +1869,12 @@ function playerById(id) { return state.players.find(p => p.id === id); }
 function getAttendRate(playerId) {
   const total = state.practices.filter(p => isPast(p.date) || p.date === today()).length;
   if (!total) return null;
-  // Count RSVP Yes responses (rather than actual check-ins)
-  const yesCount = state.practices.filter(p =>
+  // Attendance is now driven by check-ins (the practice RSVP was removed).
+  const attendedCount = state.practices.filter(p =>
     (isPast(p.date) || p.date === today()) &&
-    (p.rsvp || {})[playerId] === 'yes'
+    (p.checkedIn || []).includes(playerId)
   ).length;
-  return Math.round((yesCount / total) * 100);
+  return Math.round((attendedCount / total) * 100);
 }
 
 function toast(msg) {
@@ -2473,21 +2473,6 @@ async function loadTournamentGames() {
   } catch (e) { console.error('loadTournamentGames threw:', e); }
 }
 
-async function loadPracticeRsvps() {
-  if (!sb) return;
-  try {
-    const { data, error } = await sb.from('practice_rsvps').select('*');
-    if (error) { console.error('loadPracticeRsvps error:', error); return; }
-    (data || []).forEach(function(row) {
-      const pr = state.practices.find(function(p) { return p.id === row.practice_id; });
-      if (pr) {
-        if (!pr.rsvp) pr.rsvp = {};
-        pr.rsvp[row.player_id] = row.answer;
-      }
-    });
-  } catch (e) { console.error('loadPracticeRsvps threw:', e); }
-}
-
 async function loadTournamentRsvps() {
   if (!sb) return;
   try {
@@ -2562,7 +2547,7 @@ async function loadPracticeCheckins() {
 // Convenience wrapper: load practices/tournaments + their child rows in the right order
 async function loadSchedule() {
   await Promise.all([loadPractices(), loadTournaments(), loadTournamentTeams(), loadTournamentGames()]);
-  await Promise.all([loadPracticeRsvps(), loadTournamentRsvps(), loadTournamentGameRsvps(), loadPracticeCheckins(), loadTournamentPayments()]);
+  await Promise.all([loadTournamentRsvps(), loadTournamentGameRsvps(), loadPracticeCheckins(), loadTournamentPayments()]);
 }
 function resolveSupabaseUser(user) {
   var email = (user.email || '').toLowerCase();
@@ -3153,12 +3138,14 @@ function renderDashboard() {
   const thisWeek = state.practices.filter(p => p.date >= weekFrom && p.date <= weekTo).length;
   document.getElementById('stat-practices').textContent = thisWeek;
 
+  // Average attendance is now driven by check-ins (day-of attendance signal)
+  // rather than the removed practice RSVPs.
   const pastPractices = state.practices.filter(p => isPast(p.date));
   let avgAttend = '—';
   if (pastPractices.length) {
     const rates = activePlayers.map(pl => {
-      const yesCount = pastPractices.filter(p => (p.rsvp || {})[pl.id] === 'yes').length;
-      return yesCount / pastPractices.length;
+      const attendedCount = pastPractices.filter(p => (p.checkedIn || []).includes(pl.id)).length;
+      return attendedCount / pastPractices.length;
     });
     avgAttend = Math.round((rates.reduce((a,b)=>a+b,0)/rates.length)*100) + '%';
   }
@@ -3398,7 +3385,7 @@ function renderPractices(filter) {
       <td><div style="font-weight:500;">${fmtDate(p.date)}${seriesTag}</div><div style="font-size:11px;color:var(--text-secondary);">${fmtTime(p.start)} – ${fmtTime(p.end)}</div></td>
       <td>${p.groups.map(g=>`<span class="team-tag" style="background:var(--orange-light);color:var(--orange-mid);margin-right:3px;">${g}</span>`).join('')}</td>
       <td>${p.location}</td>
-      <td>${Object.values(p.rsvp || {}).filter(a => a === 'yes').length} / ${state.players.filter(pl => p.groups.some(g => pl.team === g) && pl.active !== false).length}</td>
+      <td>${(p.checkedIn || []).length} / ${state.players.filter(pl => p.groups.some(g => pl.team === g) && pl.active !== false).length}</td>
       <td><span class="pill ${past ? 'pill-gray' : 'pill-green'}">${past ? 'Completed' : 'Upcoming'}</span></td>
       <td style="text-align:right;">
         ${isAdmin ? `<button class="btn btn-sm" onclick="editPractice('${p.id}')">Edit</button>
@@ -4785,10 +4772,10 @@ function renderAttendanceReport() {
   if (teamFilter) players = players.filter(p=>p.team===teamFilter);
 
   const playerStats = players.map(p => {
-    // RSVP Yes count instead of check-in
-    const yesCount = allSessions.filter(s => (s.rsvp || {})[p.id] === 'yes').length;
-    const rate = total ? Math.round((yesCount/total)*100) : 0;
-    return { ...p, attended: yesCount, rate };
+    // Attendance is now driven by check-ins (practice RSVP was removed).
+    const attendedCount = allSessions.filter(s => (s.checkedIn || []).includes(p.id)).length;
+    const rate = total ? Math.round((attendedCount / total) * 100) : 0;
+    return { ...p, attended: attendedCount, rate };
   }).sort((a,b) => b.rate - a.rate);
 
   if (playerStats.length) {
@@ -5023,34 +5010,11 @@ function renderPlayerHome() {
     pu.innerHTML = '<div class="empty"><div class="empty-icon">📅</div><div class="empty-text">No upcoming practices</div></div>';
   } else {
     pu.innerHTML = upcomingPractices.map(pr => {
-      const rsvpVal = (pr.rsvp || {})[p.id];
-      const inEdit = state.homeRsvpEditing.has('practice:' + pr.id);
-      const buttonsHtml = `<div style="display:flex;gap:6px;" onclick="event.stopPropagation();">
-        <button class="btn btn-sm" onclick="event.stopPropagation(); homeRsvpPractice('${pr.id}','yes')" style="background:transparent;color:var(--teal-dark);border-color:#9FE1CB;padding:4px 10px;">✓ Yes</button>
-        <button class="btn btn-sm" onclick="event.stopPropagation(); homeRsvpPractice('${pr.id}','no')" style="background:transparent;color:#A32D2D;border-color:#F7C1C1;padding:4px 10px;">✗ No</button>
-      </div>`;
-      let rsvpUI;
-      if (rsvpVal === 'yes' || rsvpVal === 'no') {
-        if (inEdit) {
-          rsvpUI = buttonsHtml;
-        } else {
-          const pillCls = rsvpVal === 'yes' ? 'pill-green' : 'pill-red';
-          const pillLbl = rsvpVal === 'yes' ? 'Going ✓' : 'Not going ✗';
-          rsvpUI = `<div style="display:flex;align-items:center;gap:6px;">
-            <span class="pill ${pillCls}">${pillLbl}</span>
-            <a onclick="event.stopPropagation(); homeToggleEditRsvp('practice:${pr.id}')" style="font-size:11px;color:var(--text-secondary);text-decoration:underline;cursor:pointer;">Change</a>
-          </div>`;
-        }
-      } else {
-        rsvpUI = buttonsHtml;
-      }
-
       return `<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--gray-border);cursor:pointer;transition:background 0.1s;" onclick="showPage('player-schedule', null)" onmouseover="this.style.background='var(--gray-bg)'" onmouseout="this.style.background=''">
         <div style="flex:1;">
           <div style="font-size:13px;font-weight:500;">${(pr.groups || []).join(', ')} @ ${pr.location || 'TBD'}</div>
           <div style="font-size:11px;color:var(--text-secondary);">${fmtDate(pr.date)} · ${fmtTime(pr.start)}–${fmtTime(pr.end)}</div>
         </div>
-        ${rsvpUI}
       </div>`;
     }).join('');
   }
@@ -5191,12 +5155,10 @@ function renderPlayerScheduleFilter(filter) {
     const isPractice = item._type === 'practice';
     const past = item._date < today();
 
-    // Read RSVP value from the appropriate table
-    let rsvpVal;
-    if (isPractice) {
-      const pr = state.practices.find(x => x.id === item.id);
-      rsvpVal = pr && pr.rsvp ? pr.rsvp[p.id] : null;
-    } else {
+    // Practices no longer carry an RSVP — check-in is the attendance signal
+    // and is admin/coach-driven. Tournament games keep their RSVP affordance.
+    let rsvpVal = null;
+    if (!isPractice) {
       const gRsvp = state.tournamentGameRsvps.find(r => r.gameId === item.id && r.playerId === p.id);
       rsvpVal = gRsvp ? gRsvp.answer : null;
     }
@@ -5217,14 +5179,10 @@ function renderPlayerScheduleFilter(filter) {
 
     const locCell = item.location || '—';
 
-    const statusLabel = rsvpVal === 'yes'
-      ? '<div style="font-size:10px;color:var(--teal-dark);font-weight:600;margin-top:4px;">✓ Saved</div>'
-      : rsvpVal === 'no'
-        ? '<div style="font-size:10px;color:#A32D2D;font-weight:600;margin-top:4px;">✗ Saved</div>'
-        : '<div style="font-size:10px;color:var(--text-secondary);margin-top:4px;">Tap to answer</div>';
-
     let attendingCell;
-    if (past) {
+    if (isPractice) {
+      attendingCell = '<span style="font-size:12px;color:var(--text-secondary);">—</span>';
+    } else if (past) {
       if (rsvpVal === 'yes') {
         attendingCell = '<span class="pill pill-green">Going ✓</span><div style="font-size:9px;color:var(--text-secondary);font-style:italic;margin-top:3px;">past event</div>';
       } else if (rsvpVal === 'no') {
@@ -5233,12 +5191,13 @@ function renderPlayerScheduleFilter(filter) {
         attendingCell = '<span class="pill pill-gray">No response</span><div style="font-size:9px;color:var(--text-secondary);font-style:italic;margin-top:3px;">past event</div>';
       }
     } else {
-      const yesHandler = isPractice
-        ? `setRsvp('${item.id}','practice','yes')`
-        : `setGameRsvp('${item.id}','${p.id}','yes')`;
-      const noHandler = isPractice
-        ? `setRsvp('${item.id}','practice','no')`
-        : `setGameRsvp('${item.id}','${p.id}','no')`;
+      const yesHandler = `setGameRsvp('${item.id}','${p.id}','yes')`;
+      const noHandler = `setGameRsvp('${item.id}','${p.id}','no')`;
+      const statusLabel = rsvpVal === 'yes'
+        ? '<div style="font-size:10px;color:var(--teal-dark);font-weight:600;margin-top:4px;">✓ Saved</div>'
+        : rsvpVal === 'no'
+          ? '<div style="font-size:10px;color:#A32D2D;font-weight:600;margin-top:4px;">✗ Saved</div>'
+          : '<div style="font-size:10px;color:var(--text-secondary);margin-top:4px;">Tap to answer</div>';
 
       attendingCell = `
         <div style="display:flex;flex-direction:column;align-items:flex-start;gap:2px;">
@@ -5266,34 +5225,29 @@ function renderPlayerScheduleFilter(filter) {
 }
 
 async function setRsvp(sessionId, type, answer, opts) {
+  // Practice RSVP was removed; this handler now only services tournaments.
+  if (type !== 'tournament') return;
   opts = opts || {};
   const p = state.currentUser;
   if (!p || !sb) return;
-  const session = type==='practice' ? state.practices.find(x=>x.id===sessionId) : state.tournaments.find(x=>x.id===sessionId);
+  const session = state.tournaments.find(x => x.id === sessionId);
   if (!session) return;
 
-  // Optimistic local update so the UI feels instant
   if (!session.rsvp) session.rsvp = {};
   session.rsvp[p.id] = answer;
   renderPlayerScheduleFilter(currentSchedFilter);
 
-  // Persist to Supabase. Use upsert keyed on (practice_id, player_id) or (tournament_id, player_id).
-  const tableName = type === 'practice' ? 'practice_rsvps' : 'tournament_rsvps';
-  const fkCol = type === 'practice' ? 'practice_id' : 'tournament_id';
-  const row = { player_id: p.id, answer: answer, updated_at: new Date().toISOString() };
-  row[fkCol] = sessionId;
-
-  // Upsert: try insert, on conflict update
+  const row = { player_id: p.id, answer: answer, updated_at: new Date().toISOString(), tournament_id: sessionId };
   try {
-    const existing = await sb.from(tableName).select('id').eq(fkCol, sessionId).eq('player_id', p.id).maybeSingle();
+    const existing = await sb.from('tournament_rsvps').select('id').eq('tournament_id', sessionId).eq('player_id', p.id).maybeSingle();
     if (existing.data) {
-      const upd = await sb.from(tableName).update({ answer: answer, updated_at: row.updated_at }).eq('id', existing.data.id);
+      const upd = await sb.from('tournament_rsvps').update({ answer: answer, updated_at: row.updated_at }).eq('id', existing.data.id);
       if (upd.error) throw upd.error;
     } else {
-      const ins = await sb.from(tableName).insert(row);
+      const ins = await sb.from('tournament_rsvps').insert(row);
       if (ins.error) throw ins.error;
     }
-    if (!opts.silent) toast(answer==='yes' ? "Marked as going 🏀" : "Marked as not going.");
+    if (!opts.silent) toast(answer === 'yes' ? 'Marked as going 🏀' : 'Marked as not going.');
   } catch (e) {
     console.error('setRsvp error:', e);
     alert('Could not save your RSVP. Please try again.');
@@ -5404,27 +5358,15 @@ function renderCalendar(containerId, mode) {
     const evs = byDay[d]||[];
     let evHtml = '';
     evs.slice(0,3).forEach(e => {
-      // Build RSVP lookup based on event type
-      let rsvpObj = {};
-      if (e.type === 'practice') {
-        rsvpObj = (state.practices.find(p => p.id === e.id) || {}).rsvp || {};
-      }
-      // For 'game' type, per-game RSVPs come from a separate table (Commit D).
-      // For now, no RSVP indicator on game events.
-      const rsvpd = isPlayer ? rsvpObj[state.currentUser&&state.currentUser.id] : null;
-      let indicator = '';
-      if (isPlayer) {
-        if (rsvpd === 'yes') indicator = ' <span style="color:var(--teal-dark);">●</span>';
-        else if (rsvpd === 'no') indicator = ' <span style="color:#A32D2D;">✗</span>';
-      }
+      // Practice RSVP was removed; calendar tiles are info-only for parents.
+      // Tournament games may add per-game indicators in the future.
+      const indicator = '';
       const bg = e.type === 'practice' ? 'var(--blue-light)' : 'var(--orange-light)';
       const col = e.type === 'practice' ? 'var(--blue)' : 'var(--orange-mid)';
-      const clickAttr = (isPlayer && e.type === 'practice')
-        ? ' onclick="openCalEventModal(\''+e.id+'\',\''+e.type+'\')" style="cursor:pointer;'
-        : (isCoachTeams && e.type === 'game')
-          ? ' onclick="openGameDetailModal(\''+e.id+'\')" style="cursor:pointer;'
-          : ' style="';
-      evHtml += '<div'+clickAttr+'font-size:10px;padding:2px 4px;border-radius:3px;margin-bottom:2px;background:'+bg+';color:'+col+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-left:2px solid '+col+';" title="'+e.label+' — tap to answer">'+e.shortLabel+indicator+'</div>';
+      const clickAttr = (isCoachTeams && e.type === 'game')
+        ? ' onclick="openGameDetailModal(\''+e.id+'\')" style="cursor:pointer;'
+        : ' style="';
+      evHtml += '<div'+clickAttr+'font-size:10px;padding:2px 4px;border-radius:3px;margin-bottom:2px;background:'+bg+';color:'+col+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-left:2px solid '+col+';" title="'+e.label+'">'+e.shortLabel+indicator+'</div>';
     });
     if (evs.length>3) evHtml += '<div style="font-size:10px;color:var(--text-secondary);">+'+(evs.length-3)+' more</div>';
     const dayBg = isToday ? 'var(--orange-light)' : 'var(--white)';
@@ -5434,11 +5376,9 @@ function renderCalendar(containerId, mode) {
   }
   const remaining = (firstDay + daysInMonth) % 7;
   if (remaining > 0) { for (let i=0; i<(7-remaining); i++) cells += `<div style="min-height:72px;border-right:0.5px solid var(--gray-border);border-bottom:0.5px solid var(--gray-border);background:var(--gray-bg);"></div>`; }
-  const legendExtra = isPlayer
-    ? '<span style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;"><span style="color:var(--teal-dark);">●</span> Going</span><span style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;"><span style="color:#A32D2D;">✗</span> Not going</span><span style="font-size:12px;color:var(--orange-mid);font-weight:500;margin-left:6px;">💡 Tap a practice to RSVP</span>'
-    : isCoachTeams
-      ? '<span style="font-size:12px;color:var(--orange-mid);font-weight:500;margin-left:6px;">💡 Tap a game for details</span>'
-      : '';
+  const legendExtra = isCoachTeams
+    ? '<span style="font-size:12px;color:var(--orange-mid);font-weight:500;margin-left:6px;">💡 Tap a game for details</span>'
+    : '';
   html += cells + '</div></div><div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:10px;"><span style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;border-radius:2px;display:inline-block;background:var(--blue-light);border:1px solid var(--blue);"></span>Practice</span><span style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;border-radius:2px;display:inline-block;background:var(--orange-light);border:1px solid var(--orange-mid);"></span>Game</span>'+legendExtra+'</div>';
   container.innerHTML = html;
 }
@@ -5788,13 +5728,6 @@ async function setTournRsvp(tournId, playerId, answer, opts) {
 
 // ----- Home dashboard inline RSVP wrappers -----
 // Goal: silent state-flip on Home, no toast, no navigation, instant render.
-async function homeRsvpPractice(practiceId, answer) {
-  state.homeRsvpEditing.delete('practice:' + practiceId);
-  const promise = setRsvp(practiceId, 'practice', answer, { silent: true });
-  renderPlayerHome();
-  await promise;
-  renderPlayerHome();
-}
 async function homeRsvpTournament(tournamentId, answer) {
   state.homeRsvpEditing.delete('tournament:' + tournamentId);
   const playerId = state.currentUser ? state.currentUser.id : null;
@@ -7118,7 +7051,7 @@ function renderAttendanceSummary() {
       const players = state.players.filter(p => p.team === t && p.active !== false);
       if (!players.length) return;
       const total = tSessions.length * players.length;
-      const attended = tSessions.reduce((sum, s) => sum + players.filter(p => (s.rsvp || {})[p.id] === 'yes').length, 0);
+      const attended = tSessions.reduce((sum, s) => sum + players.filter(p => (s.checkedIn || []).includes(p.id)).length, 0);
       teamBreakdown[t] = { sessions: tSessions.length, rate: total ? Math.round(attended/total*100) : 0 };
     });
     return { month: m, name: monthNames[m.split('-')[1]] + ' ' + m.split('-')[0], sessions: sessions.length, teamBreakdown };
@@ -7144,7 +7077,7 @@ function renderAttendanceSummary() {
           const sessions = state.practices.filter(s => s.groups.includes(team) && isPast(s.date));
           if (!sessions.length) return '';
           const total = sessions.length * players.length;
-          const attended = sessions.reduce((sum, s) => sum + players.filter(p => (s.rsvp || {})[p.id] === 'yes').length, 0);
+          const attended = sessions.reduce((sum, s) => sum + players.filter(p => (s.checkedIn || []).includes(p.id)).length, 0);
           const rate = total ? Math.round(attended/total*100) : 0;
           const color = rate >= 75 ? 'var(--teal)' : rate >= 50 ? 'var(--amber)' : '#E24B4A';
           return `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;">
