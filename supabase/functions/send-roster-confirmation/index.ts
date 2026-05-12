@@ -122,7 +122,29 @@ serve(async (req) => {
       );
     }
 
-    const parentIds = [...new Set((players || []).map((p: any) => p.parent_id).filter(Boolean))];
+    // Fan out: look up all linked parents per player via parent_players.
+    // Falls back to players.parent_id if a player has no parent_players rows
+    // (defensive — registration writes both since Phase 2).
+    const yesPlayerIdsForLookup = (players || []).map((p: any) => p.id);
+    const { data: links, error: linkErr } = await sb
+      .from("parent_players")
+      .select("player_id, parent_id")
+      .in("player_id", yesPlayerIdsForLookup);
+    if (linkErr) {
+      console.error("parent_players lookup failed:", linkErr);
+    }
+    const playerToParentIds = new Map<string, string[]>();
+    (links || []).forEach((l: any) => {
+      if (!playerToParentIds.has(l.player_id)) playerToParentIds.set(l.player_id, []);
+      playerToParentIds.get(l.player_id)!.push(l.parent_id);
+    });
+    for (const player of (players || [])) {
+      if (!playerToParentIds.has(player.id) && player.parent_id) {
+        console.warn(`parent_players empty for player ${player.id}; falling back to players.parent_id`);
+        playerToParentIds.set(player.id, [player.parent_id]);
+      }
+    }
+    const parentIds = [...new Set(Array.from(playerToParentIds.values()).flat())];
     const { data: parents, error: parErr } = await sb
       .from("parents")
       .select("id, first, email")
@@ -183,16 +205,24 @@ serve(async (req) => {
     const results: any[] = [];
 
     for (const player of (players || [])) {
-      const parent = parentMap.get(player.parent_id);
-      if (!parent || !parent.email) {
-        console.warn(`Skipping player ${player.id}: parent has no email on file`);
+      const linkedParentIds = playerToParentIds.get(player.id) || [];
+      if (linkedParentIds.length === 0) {
+        console.warn(`Skipping player ${player.id}: no linked parents`);
         skipped++;
-        results.push({ player_id: player.id, ok: false, reason: "no parent email" });
+        results.push({ player_id: player.id, ok: false, reason: "no linked parents" });
         continue;
       }
+      for (const pid of linkedParentIds) {
+        const parent = parentMap.get(pid);
+        if (!parent || !parent.email) {
+          console.warn(`Skipping player ${player.id} parent ${pid}: no email on file`);
+          skipped++;
+          results.push({ player_id: player.id, parent_id: pid, ok: false, reason: "no parent email" });
+          continue;
+        }
 
-      const subject = `${player.first} is rostered for ${tournament.name}`;
-      const text = `Hi ${parent.first || "there"},
+        const subject = `${player.first} is rostered for ${tournament.name}`;
+        const text = `Hi ${parent.first || "there"},
 
 ${player.first} ${player.last} has been added to the ${team.name} roster for ${tournament.name} (${dateRange}).${rosterBlock}
 
@@ -200,36 +230,37 @@ Game schedule and details will be available in the 3Ball app under the Tourneys 
 
 ${coachEmails.length ? "Coaches on this team are cc'd.\n\n" : ""}— 3Ball Academy`;
 
-      const payload: any = {
-        from: FROM_EMAIL,
-        to: [parent.email],
-        reply_to: REPLY_TO,
-        subject,
-        text,
-      };
-      if (coachEmails.length > 0) payload.cc = coachEmails;
+        const payload: any = {
+          from: FROM_EMAIL,
+          to: [parent.email],
+          reply_to: REPLY_TO,
+          subject,
+          text,
+        };
+        if (coachEmails.length > 0) payload.cc = coachEmails;
 
-      try {
-        const resp = await fetch("https://api.resend.com/emails", {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${RESEND_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(payload),
-        });
+        try {
+          const resp = await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${RESEND_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(payload),
+          });
 
-        const data = await resp.json();
-        if (!resp.ok) {
-          console.error(`Resend failed: tournament_id=${tournament_id} player_id=${player.id} to=${parent.email} cc=${coachEmails.join(",")} err=`, data);
-          results.push({ player_id: player.id, to: parent.email, ok: false, error: data });
-        } else {
-          sent++;
-          results.push({ player_id: player.id, to: parent.email, ok: true, id: data.id });
+          const data = await resp.json();
+          if (!resp.ok) {
+            console.error(`Resend failed: tournament_id=${tournament_id} player_id=${player.id} parent_id=${pid} to=${parent.email} err=`, data);
+            results.push({ player_id: player.id, parent_id: pid, to: parent.email, ok: false, error: data });
+          } else {
+            sent++;
+            results.push({ player_id: player.id, parent_id: pid, to: parent.email, ok: true, id: data.id });
+          }
+        } catch (e) {
+          console.error(`Send threw: tournament_id=${tournament_id} player_id=${player.id} parent_id=${pid} to=${parent.email} err=`, e);
+          results.push({ player_id: player.id, parent_id: pid, to: parent.email, ok: false, error: String(e) });
         }
-      } catch (e) {
-        console.error(`Send threw: tournament_id=${tournament_id} player_id=${player.id} to=${parent.email} err=`, e);
-        results.push({ player_id: player.id, to: parent.email, ok: false, error: String(e) });
       }
     }
 
