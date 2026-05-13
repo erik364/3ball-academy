@@ -5363,9 +5363,11 @@ function renderCalendar(containerId, mode) {
       const indicator = '';
       const bg = e.type === 'practice' ? 'var(--blue-light)' : 'var(--orange-light)';
       const col = e.type === 'practice' ? 'var(--blue)' : 'var(--orange-mid)';
-      const clickAttr = (isCoachTeams && e.type === 'game')
-        ? ' onclick="openGameDetailModal(\''+e.id+'\')" style="cursor:pointer;'
-        : ' style="';
+      const clickAttr = e.type === 'practice'
+        ? ' onclick="openPracticeDetailModal(\''+e.id+'\')" style="cursor:pointer;'
+        : e.type === 'game'
+          ? ' onclick="openGameDetailModal(\''+e.id+'\')" style="cursor:pointer;'
+          : ' style="';
       evHtml += '<div'+clickAttr+'font-size:10px;padding:2px 4px;border-radius:3px;margin-bottom:2px;background:'+bg+';color:'+col+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-left:2px solid '+col+';" title="'+e.label+'">'+e.shortLabel+indicator+'</div>';
     });
     if (evs.length>3) evHtml += '<div style="font-size:10px;color:var(--text-secondary);">+'+(evs.length-3)+' more</div>';
@@ -5376,9 +5378,7 @@ function renderCalendar(containerId, mode) {
   }
   const remaining = (firstDay + daysInMonth) % 7;
   if (remaining > 0) { for (let i=0; i<(7-remaining); i++) cells += `<div style="min-height:72px;border-right:0.5px solid var(--gray-border);border-bottom:0.5px solid var(--gray-border);background:var(--gray-bg);"></div>`; }
-  const legendExtra = isCoachTeams
-    ? '<span style="font-size:12px;color:var(--orange-mid);font-weight:500;margin-left:6px;">💡 Tap a game for details</span>'
-    : '';
+  const legendExtra = '<span style="font-size:12px;color:var(--orange-mid);font-weight:500;margin-left:6px;">💡 Tap a game or practice for details</span>';
   html += cells + '</div></div><div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:10px;"><span style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;border-radius:2px;display:inline-block;background:var(--blue-light);border:1px solid var(--blue);"></span>Practice</span><span style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;border-radius:2px;display:inline-block;background:var(--orange-light);border:1px solid var(--orange-mid);"></span>Game</span>'+legendExtra+'</div>';
   container.innerHTML = html;
 }
@@ -6643,6 +6643,49 @@ let _calEventId = null, _calEventType = null;
 
 // Info-only popup for tournament games on the coach calendar.
 // Reads game + parent tournament_team + tournament; pulls roster names from players.
+// Info-only popup for a practice. Reuses the same #game-detail-modal element
+// as openGameDetailModal — title swaps to "Practice" and the body renders
+// practice-shaped content (no roster, no RSVP).
+function openPracticeDetailModal(practiceId) {
+  const pr = state.practices.find(x => x.id === practiceId);
+  if (!pr) return;
+  const teamLabel = (pr.groups || []).join(', ');
+  const timeStr = pr.start
+    ? fmtTime(pr.start) + (pr.end ? ' – ' + fmtTime(pr.end) : '')
+    : 'TBD';
+  const coaches = (pr.coachIds || [])
+    .map(cid => state.coaches.find(c => c.id === cid))
+    .filter(Boolean)
+    .sort((a, b) => (a.last + a.first).localeCompare(b.last + b.first));
+  const coachesSection = coaches.length
+    ? `<div style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">Coaches</div>
+       <ul style="margin:0 0 14px 0;padding-left:18px;">
+         ${coaches.map(c => `<li style="font-size:13px;padding:2px 0;">${c.first} ${c.last}</li>`).join('')}
+       </ul>`
+    : '';
+  const notesSection = pr.notes
+    ? `<div style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">Notes</div>
+       <div style="font-size:13px;color:var(--text);line-height:1.5;white-space:pre-wrap;">${pr.notes}</div>`
+    : '';
+
+  const titleEl = document.getElementById('game-detail-title');
+  const bodyEl = document.getElementById('game-detail-body');
+  if (titleEl) titleEl.textContent = 'Practice';
+  if (bodyEl) {
+    bodyEl.innerHTML = `
+      ${teamLabel ? `<div style="font-family:'Barlow Condensed',sans-serif;font-size:17px;font-weight:700;color:var(--text);margin-bottom:10px;">${teamLabel}</div>` : ''}
+      <div style="background:var(--gray-bg);border-radius:var(--radius);padding:10px 12px;font-size:13px;line-height:1.7;margin-bottom:14px;">
+        <div>📅 <strong>${fmtDate(pr.date)}</strong></div>
+        <div>🕐 ${timeStr}</div>
+        ${pr.location ? `<div>📍 ${pr.location}</div>` : ''}
+      </div>
+      ${coachesSection}
+      ${notesSection}
+    `;
+  }
+  openModal('game-detail-modal');
+}
+
 function openGameDetailModal(gameId) {
   const g = state.tournamentGames.find(x => x.id === gameId);
   if (!g) return;
