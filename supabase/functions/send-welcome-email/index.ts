@@ -19,41 +19,30 @@ function escapeAttr(s: string): string {
   return String(s || "").replace(/[<>&"]/g, "");
 }
 
-type KidInvite = { first_name: string; url: string };
-
-function buildInviteSectionHtml(kidInviteLinks: KidInvite[]): string {
-  if (!kidInviteLinks || kidInviteLinks.length === 0) return "";
-  const rows = kidInviteLinks.map((k) => `
-    <tr>
-      <td style="padding:8px 0;">
-        <div style="font-size:14px;font-weight:600;color:#1A2E1A;">${escapeAttr(k.first_name)}:</div>
-        <a href="${escapeAttr(k.url)}" style="font-size:13px;color:#E8621A;word-break:break-all;">${escapeAttr(k.url)}</a>
-      </td>
-    </tr>
-  `).join("");
+function buildInviteSectionHtml(householdInviteLink: string): string {
+  if (!householdInviteLink) return "";
   return `
     <div style="margin:24px 0;padding:16px;background:#F4F6F2;border-radius:8px;">
-      <p style="margin:0 0 8px 0;font-size:15px;font-weight:600;color:#1A2E1A;">Want your co-parent to have access too?</p>
+      <p style="margin:0 0 8px 0;font-size:15px;font-weight:600;color:#1A2E1A;">Want your co-parent or another family member to have access too?</p>
       <p style="margin:0 0 12px 0;font-size:13px;line-height:1.5;color:#5F5E5A;">
-        Share these invite links for each of your children:
+        Share this invite link:
       </p>
-      <table width="100%" cellpadding="0" cellspacing="0">${rows}</table>
+      <a href="${escapeAttr(householdInviteLink)}" style="font-size:13px;color:#E8621A;word-break:break-all;">${escapeAttr(householdInviteLink)}</a>
       <p style="margin:12px 0 0 0;font-size:12px;color:#888780;font-style:italic;">
-        Each link is valid for 7 days and works once.
+        Valid for 7 days. Works once. Anyone who joins gets access to your whole household — including any kids you add later.
       </p>
     </div>
   `;
 }
 
-function buildInviteSectionText(kidInviteLinks: KidInvite[]): string {
-  if (!kidInviteLinks || kidInviteLinks.length === 0) return "";
-  const lines = kidInviteLinks.map((k) => `  ${k.first_name}: ${k.url}`).join("\n");
-  return `\n\nWant your co-parent to have access too? Here are invite links for each of your children:\n\n${lines}\n\nEach link is valid for 7 days and works once.`;
+function buildInviteSectionText(householdInviteLink: string): string {
+  if (!householdInviteLink) return "";
+  return `\n\nWant your co-parent or another family member to have access too? Share this invite link:\n\n${householdInviteLink}\n\nValid for 7 days. Works once. Anyone who joins gets access to your whole household — including any kids you add later.`;
 }
 
-function buildHtml(first: string, kidInviteLinks: KidInvite[]): string {
+function buildHtml(first: string, householdInviteLink: string): string {
   const safeFirst = (first || "there").replace(/[<>&"]/g, "");
-  const inviteHtml = buildInviteSectionHtml(kidInviteLinks);
+  const inviteHtml = buildInviteSectionHtml(householdInviteLink);
   return `<!DOCTYPE html>
 <html>
   <head>
@@ -111,9 +100,9 @@ function buildHtml(first: string, kidInviteLinks: KidInvite[]): string {
 </html>`;
 }
 
-function buildText(first: string, kidInviteLinks: KidInvite[]): string {
+function buildText(first: string, householdInviteLink: string): string {
   const safeFirst = first || "there";
-  const inviteText = buildInviteSectionText(kidInviteLinks);
+  const inviteText = buildInviteSectionText(householdInviteLink);
   return `Hi ${safeFirst},
 
 Mike Wozniak here — welcome to 3Ball Academy! Your account is approved and you're ready to go.
@@ -129,42 +118,29 @@ Mike Wozniak
 
 // Look up unused, non-expired invites for this parent. Each invite belongs
 // to one of their kids; we pull the kid's first name for the email body.
-async function lookupInviteLinks(parent_user_id: string): Promise<KidInvite[]> {
-  if (!parent_user_id || !ADMIN_API_KEY || !SUPABASE_URL) return [];
+// Look up the most recent unused, non-expired invite this parent created.
+// Household-scope invites are not kid-targeted; we return a single URL or "".
+async function lookupHouseholdInviteLink(parent_user_id: string): Promise<string> {
+  if (!parent_user_id || !ADMIN_API_KEY || !SUPABASE_URL) return "";
   try {
     const sb = createClient(SUPABASE_URL, ADMIN_API_KEY);
     const { data: invites, error: iErr } = await sb
       .from("parent_invites")
-      .select("token, player_id, expires_at")
+      .select("token, expires_at, created_at")
       .eq("inviting_parent_id", parent_user_id)
       .is("used_at", null)
-      .gt("expires_at", new Date().toISOString());
+      .gt("expires_at", new Date().toISOString())
+      .order("created_at", { ascending: false })
+      .limit(1);
     if (iErr) {
       console.error("invite lookup failed:", iErr);
-      return [];
+      return "";
     }
-    if (!invites || invites.length === 0) return [];
-
-    const playerIds = [...new Set(invites.map((i: any) => i.player_id))];
-    const { data: players, error: pErr } = await sb
-      .from("players")
-      .select("id, first")
-      .in("id", playerIds);
-    if (pErr) {
-      console.error("players lookup for invite section failed:", pErr);
-      return [];
-    }
-    const nameById = new Map<string, string>();
-    (players || []).forEach((p: any) => nameById.set(p.id, p.first || ""));
-
-    return invites
-      .map((i: any) => ({
-        first_name: nameById.get(i.player_id) || "Your child",
-        url: `${APP_URL}/?invite=${encodeURIComponent(i.token)}`,
-      }));
+    if (!invites || invites.length === 0) return "";
+    return `${APP_URL}/?invite=${encodeURIComponent(invites[0].token)}`;
   } catch (e) {
-    console.error("lookupInviteLinks threw:", e);
-    return [];
+    console.error("lookupHouseholdInviteLink threw:", e);
+    return "";
   }
 }
 
@@ -197,7 +173,7 @@ serve(async (req) => {
     // welcome email can include the "share with co-parent" section. If
     // anything goes wrong here, we still send the welcome email — just
     // without the invite section.
-    const kidInviteLinks = parentUserId ? await lookupInviteLinks(parentUserId) : [];
+    const householdInviteLink = parentUserId ? await lookupHouseholdInviteLink(parentUserId) : "";
 
     const resp = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -210,8 +186,8 @@ serve(async (req) => {
         to: [email],
         reply_to: "wozzy20@aol.com",
         subject: "Welcome to 3Ball Academy",
-        html: buildHtml(first, kidInviteLinks),
-        text: buildText(first, kidInviteLinks),
+        html: buildHtml(first, householdInviteLink),
+        text: buildText(first, householdInviteLink),
       }),
     });
 
@@ -226,7 +202,7 @@ serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({ ok: true, id: data.id, invite_count: kidInviteLinks.length }),
+      JSON.stringify({ ok: true, id: data.id, household_invite_included: !!householdInviteLink }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (err) {
