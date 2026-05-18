@@ -2610,7 +2610,7 @@ function doLogin() {
       err.textContent = 'Invalid email or password.';
       return;
     }
-   Promise.all([loadCoaches(), loadParents(), loadPlayers(), loadPlayerNotes(), loadSchedule(), loadSettings(), loadGroups(), loadParentInvites(), loadHousehold()]).then(function() {
+   Promise.all([loadCoaches(), loadParents(), loadPlayers(), loadPlayerNotes(), loadSchedule(), loadSettings(), loadGroups()]).then(async function() {
       var resolved = resolveSupabaseUser(result.data.user);
       if (!resolved) {
         err.textContent = 'Account exists but no role is assigned. Contact your admin.';
@@ -2644,6 +2644,9 @@ function doLogin() {
           name: resolved.parent.first + ' ' + resolved.parent.last,
           initials: ((resolved.parent.first[0] || '?') + (resolved.parent.last[0] || '')).toUpperCase()
         };
+        // Parent-scoped loaders run AFTER state.currentParent is set —
+        // their guards depend on it.
+        await Promise.all([loadParentInvites(), loadHousehold()]);
         enterApp('parent');
       }
     });
@@ -2829,7 +2832,7 @@ function submitNewPassword() {
   sb.auth.getSession().then(function(result) {
     var session = result.data && result.data.session;
     if (!session || !session.user) return;
-    Promise.all([loadCoaches(), loadParents(), loadPlayers(), loadPlayerNotes(), loadSchedule(), loadSettings(), loadGroups(), loadParentInvites(), loadHousehold()]).then(function() {
+    Promise.all([loadCoaches(), loadParents(), loadPlayers(), loadPlayerNotes(), loadSchedule(), loadSettings(), loadGroups()]).then(async function() {
         var resolved = resolveSupabaseUser(session.user);
         if (!resolved) return;
         // Gate unapproved parents
@@ -2859,6 +2862,9 @@ function submitNewPassword() {
             name: resolved.parent.first + ' ' + resolved.parent.last,
             initials: ((resolved.parent.first[0] || '?') + (resolved.parent.last[0] || '')).toUpperCase()
           };
+          // Parent-scoped loaders run AFTER state.currentParent is set —
+          // their guards depend on it.
+          await Promise.all([loadParentInvites(), loadHousehold()]);
           enterApp('parent');
         }
       });
