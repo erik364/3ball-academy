@@ -1277,6 +1277,13 @@ body:not([data-role="admin"]) .btn.admin-only {
               <div id="pa-players-list"></div>
             </div>
           </div>
+
+          <div class="panel" style="margin-top:14px;">
+            <div class="panel-header">
+              <span class="panel-title">Household Members</span>
+            </div>
+            <div id="pa-household-section" style="padding:14px 16px;"></div>
+          </div>
         </div>
 
         <!-- COACH SCHEDULE (non-admin coach view) -->
@@ -1820,6 +1827,8 @@ let state = {
   tournamentPayments: [],
   groups: [],
   parentInvites: [],
+  household: null,
+  householdMembers: [],
   tournamentGameRsvps: [],
   parents: [],
   players: [],
@@ -2090,7 +2099,8 @@ async function submitInviteConsume() {
         not_found: 'This invite link is invalid. Please contact your co-parent for a fresh link.',
         already_used: 'This invite link has already been used.',
         expired: 'This invite link has expired. Please contact your co-parent for a fresh link.',
-        self_claim: "You're already linked to this account."
+        self_claim: "You're already linked to this account.",
+        household_missing: 'Could not find the household for this invite. Please contact your co-parent for a fresh link.'
       };
       inviteConsumeError(messages[code] || 'Could not consume the invite link.');
       return;
@@ -2600,7 +2610,7 @@ function doLogin() {
       err.textContent = 'Invalid email or password.';
       return;
     }
-   Promise.all([loadCoaches(), loadParents(), loadPlayers(), loadPlayerNotes(), loadSchedule(), loadSettings(), loadGroups(), loadParentInvites()]).then(function() {
+   Promise.all([loadCoaches(), loadParents(), loadPlayers(), loadPlayerNotes(), loadSchedule(), loadSettings(), loadGroups(), loadParentInvites(), loadHousehold()]).then(function() {
       var resolved = resolveSupabaseUser(result.data.user);
       if (!resolved) {
         err.textContent = 'Account exists but no role is assigned. Contact your admin.';
@@ -2819,7 +2829,7 @@ function submitNewPassword() {
   sb.auth.getSession().then(function(result) {
     var session = result.data && result.data.session;
     if (!session || !session.user) return;
-    Promise.all([loadCoaches(), loadParents(), loadPlayers(), loadPlayerNotes(), loadSchedule(), loadSettings(), loadGroups(), loadParentInvites()]).then(function() {
+    Promise.all([loadCoaches(), loadParents(), loadPlayers(), loadPlayerNotes(), loadSchedule(), loadSettings(), loadGroups(), loadParentInvites(), loadHousehold()]).then(function() {
         var resolved = resolveSupabaseUser(session.user);
         if (!resolved) return;
         // Gate unapproved parents
@@ -3013,9 +3023,25 @@ async function regNext() {
       }
 
       // Insert players, then mirror each linkage into parent_players (Phase 2
-       // invariant), then generate one invite per kid for the registration email.
-       const kidInviteLinks = [];
+       // invariant), then generate the household invite for the registration email.
+       let householdInviteUrl = '';
        let insertedPlayers = [];
+
+       // 1. Create the household row up front (the primary parent owns it).
+       let householdId = null;
+       try {
+         const { data: hData, error: hErr } = await sb.from('households').insert({
+           primary_parent_id: newUserId
+         }).select().single();
+         if (hErr) {
+           console.error('household insert error (non-blocking):', hErr);
+         } else if (hData) {
+           householdId = hData.id;
+         }
+       } catch (e) {
+         console.error('household insert threw:', e);
+       }
+
        if (players.length > 0) {
         const playerRows = players.map(function(p) {
           return {
@@ -3035,40 +3061,37 @@ async function regNext() {
         }
         insertedPlayers = insertedData || [];
 
-        // parent_players: mirror each new linkage so the Phase 1 join-table
-        // invariant is maintained for future flows.
+        // 2. parent_players: mirror each new linkage. Stamp household_id so
+        // membership queries find these rows.
         if (insertedPlayers.length > 0) {
           const ppRows = insertedPlayers.map(function(pl) {
-            return { parent_id: newUserId, player_id: pl.id, is_primary: true };
+            return { parent_id: newUserId, player_id: pl.id, is_primary: true, household_id: householdId };
           });
           const { error: ppErr } = await sb.from('parent_players').insert(ppRows);
           if (ppErr) {
             console.error('parent_players insert error (non-blocking):', ppErr);
           }
         }
+      }
 
-        // Generate one invite per new kid so the registration email can
-        // include co-parent links. RLS allows this insert because
-        // inviting_parent_id = auth.uid() for the freshly signed-up parent.
-        for (let i = 0; i < insertedPlayers.length; i++) {
-          const pl = insertedPlayers[i];
-          try {
-            const token = generateInviteToken();
-            const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-            const { error: invErr } = await sb.from('parent_invites').insert({
-              inviting_parent_id: newUserId,
-              player_id: pl.id,
-              token: token,
-              expires_at: expires
-            });
-            if (invErr) {
-              console.error('invite insert error for ' + pl.first + ':', invErr);
-              continue;
-            }
-            kidInviteLinks.push({ first_name: pl.first, url: inviteUrlFor(token) });
-          } catch (e) {
-            console.error('invite generation threw for ' + pl.first + ':', e);
+      // 3. Single household-scoped invite for the registration email.
+      if (householdId) {
+        try {
+          const token = generateInviteToken();
+          const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+          const { error: invErr } = await sb.from('parent_invites').insert({
+            inviting_parent_id: newUserId,
+            household_id: householdId,
+            token: token,
+            expires_at: expires
+          });
+          if (invErr) {
+            console.error('household invite insert error:', invErr);
+          } else {
+            householdInviteUrl = inviteUrlFor(token);
           }
+        } catch (e) {
+          console.error('household invite generation threw:', e);
         }
       }
 
@@ -3079,7 +3102,7 @@ async function regNext() {
 
       try {
         const { data: emailData, error: emailError } = await sb.functions.invoke('send-registration-confirmation', {
-          body: { email: email, first: first, kid_invite_links: kidInviteLinks },
+          body: { email: email, first: first, household_invite_link: householdInviteUrl },
         });
         if (emailError) {
           console.error('Registration confirmation email failed:', emailError);
@@ -5806,6 +5829,7 @@ function inviteUrlFor(token) {
 async function loadParentInvites() {
   if (!sb || !state.currentParent) { state.parentInvites = []; return; }
   try {
+    // Pull invites this user created. RLS scopes to inviter's own rows.
     const { data, error } = await sb.from('parent_invites')
       .select('*')
       .eq('inviting_parent_id', state.currentParent.id);
@@ -5814,7 +5838,8 @@ async function loadParentInvites() {
       return {
         id: row.id,
         token: row.token,
-        playerId: row.player_id,
+        playerId: row.player_id || null,
+        householdId: row.household_id || null,
         invitingParentId: row.inviting_parent_id,
         usedAt: row.used_at || null,
         consumedByParentId: row.consumed_by_parent_id || null,
@@ -5825,54 +5850,120 @@ async function loadParentInvites() {
   } catch (e) { console.error('loadParentInvites threw:', e); state.parentInvites = []; }
 }
 
-// Generate a new invite for a player. If an unused, non-expired invite
-// already exists for this (parent, player) pair, invalidate it first by
-// setting expires_at to now() — keeps one active invite per pair at most.
-async function generateInviteForPlayer(playerId) {
-  if (!sb || !state.currentParent) return null;
+// Resolve this parent's household (via parent_players.household_id, falling
+// back to households.primary_parent_id for the pre-link moment after signup).
+// Also pulls the members list.
+async function loadHousehold() {
+  state.household = null;
+  state.householdMembers = [];
+  if (!sb || !state.currentParent) return;
+  try {
+    let householdId = null;
+    const { data: links, error: linkErr } = await sb.from('parent_players')
+      .select('household_id')
+      .eq('parent_id', state.currentParent.id)
+      .not('household_id', 'is', null)
+      .limit(1);
+    if (linkErr) console.error('loadHousehold parent_players error:', linkErr);
+    if (links && links[0]) householdId = links[0].household_id;
+
+    if (!householdId) {
+      const { data: direct, error: dErr } = await sb.from('households')
+        .select('*')
+        .eq('primary_parent_id', state.currentParent.id)
+        .maybeSingle();
+      if (dErr) { console.error('loadHousehold direct error:', dErr); return; }
+      if (direct) {
+        state.household = { id: direct.id, primaryParentId: direct.primary_parent_id, createdAt: direct.created_at };
+      }
+      return;
+    }
+
+    const { data: h, error: hErr } = await sb.from('households').select('*').eq('id', householdId).single();
+    if (hErr) { console.error('loadHousehold detail error:', hErr); return; }
+    state.household = { id: h.id, primaryParentId: h.primary_parent_id, createdAt: h.created_at };
+
+    const { data: memberLinks, error: mlErr } = await sb.from('parent_players')
+      .select('parent_id, created_at')
+      .eq('household_id', householdId);
+    if (mlErr) { console.error('loadHousehold members link error:', mlErr); return; }
+    const earliestByParent = {};
+    (memberLinks || []).forEach(function(m) {
+      if (!earliestByParent[m.parent_id] || m.created_at < earliestByParent[m.parent_id]) {
+        earliestByParent[m.parent_id] = m.created_at;
+      }
+    });
+    const uniqueIds = Object.keys(earliestByParent);
+    if (!uniqueIds.length) return;
+    const { data: members, error: mErr } = await sb.from('parents')
+      .select('id, first, last')
+      .in('id', uniqueIds);
+    if (mErr) { console.error('loadHousehold members error:', mErr); return; }
+    state.householdMembers = (members || []).map(function(m) {
+      return {
+        id: m.id,
+        first: m.first,
+        last: m.last,
+        isPrimary: m.id === h.primary_parent_id,
+        isSelf: m.id === state.currentParent.id,
+        joinedAt: earliestByParent[m.id] || null
+      };
+    }).sort(function(a, b) {
+      if (a.isPrimary !== b.isPrimary) return a.isPrimary ? -1 : 1;
+      return (a.joinedAt || '').localeCompare(b.joinedAt || '');
+    });
+  } catch (e) {
+    console.error('loadHousehold threw:', e);
+  }
+}
+
+// Active invite for this household, regardless of which member created it.
+function householdActiveInvite() {
+  if (!state.household) return null;
+  const nowIso = new Date().toISOString();
+  return state.parentInvites.find(function(inv) {
+    return inv.householdId === state.household.id && !inv.usedAt && inv.expiresAt > nowIso;
+  }) || null;
+}
+
+// Generate a new household-scoped invite. Invalidates any prior active invite
+// for the same household so one active link exists at a time.
+async function generateHouseholdInvite() {
+  if (!sb || !state.currentParent || !state.household) return null;
   try {
     const nowIso = new Date().toISOString();
-    // Invalidate any active invite for this pair
     await sb.from('parent_invites')
       .update({ expires_at: nowIso })
-      .eq('inviting_parent_id', state.currentParent.id)
-      .eq('player_id', playerId)
+      .eq('household_id', state.household.id)
       .is('used_at', null)
       .gt('expires_at', nowIso);
     const token = generateInviteToken();
     const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
     const { data, error } = await sb.from('parent_invites').insert({
       inviting_parent_id: state.currentParent.id,
-      player_id: playerId,
+      household_id: state.household.id,
       token: token,
       expires_at: expires
     }).select().single();
-    if (error) { console.error('generateInviteForPlayer error:', error); return null; }
-    return {
-      id: data.id,
-      token: data.token,
-      playerId: data.player_id,
-      expiresAt: data.expires_at,
-      url: inviteUrlFor(data.token)
-    };
-  } catch (e) { console.error('generateInviteForPlayer threw:', e); return null; }
+    if (error) { console.error('generateHouseholdInvite error:', error); return null; }
+    return { id: data.id, token: data.token, expiresAt: data.expires_at, url: inviteUrlFor(data.token) };
+  } catch (e) { console.error('generateHouseholdInvite threw:', e); return null; }
 }
 
-async function clickGenerateInvite(playerId) {
-  const result = await generateInviteForPlayer(playerId);
+async function clickGenerateHouseholdInvite() {
+  const result = await generateHouseholdInvite();
   if (!result) { toast('Could not create invite.'); return; }
   await loadParentInvites();
   renderParentAccount();
-  // Try to copy automatically and show the URL via toast for convenience.
   if (navigator.clipboard && navigator.clipboard.writeText) {
-    try { await navigator.clipboard.writeText(result.url); toast('Invite link copied to clipboard'); return; } catch (_) {}
+    try { await navigator.clipboard.writeText(result.url); toast('Invite link copied'); return; } catch (_) {}
   }
   toast('Invite created — click Copy to copy the link');
 }
 
-async function clickRegenerateInvite(playerId) {
+async function clickRegenerateHouseholdInvite() {
   if (!confirm('Regenerate the invite link? The old link will stop working.')) return;
-  await clickGenerateInvite(playerId);
+  await clickGenerateHouseholdInvite();
 }
 
 async function clickCopyInvite(token) {
@@ -5881,25 +5972,6 @@ async function clickCopyInvite(token) {
     try { await navigator.clipboard.writeText(url); toast('Invite link copied'); return; } catch (_) {}
   }
   window.prompt('Copy this invite URL:', url);
-}
-
-function inviteStatusFor(playerId) {
-  // Active (not used, not expired) takes precedence; otherwise show latest
-  // recorded state to drive the "claimed" / "expired" copy.
-  const nowIso = new Date().toISOString();
-  const active = state.parentInvites.find(function(inv) {
-    return inv.playerId === playerId && !inv.usedAt && inv.expiresAt > nowIso;
-  });
-  if (active) return { state: 'active', invite: active };
-  const claimed = state.parentInvites
-    .filter(function(inv) { return inv.playerId === playerId && inv.usedAt; })
-    .sort(function(a, b) { return b.usedAt.localeCompare(a.usedAt); })[0];
-  if (claimed) return { state: 'claimed', invite: claimed };
-  const expired = state.parentInvites
-    .filter(function(inv) { return inv.playerId === playerId && !inv.usedAt && inv.expiresAt <= nowIso; })
-    .sort(function(a, b) { return b.expiresAt.localeCompare(a.expiresAt); })[0];
-  if (expired) return { state: 'expired', invite: expired };
-  return { state: 'none', invite: null };
 }
 
 // ===== PARENT ACCOUNT MANAGEMENT =====
@@ -5949,43 +6021,59 @@ function renderParentAccount() {
           ${p.photo?`<button class="btn btn-sm btn-danger" onclick="removePlayerPhoto('${p.id}')">Remove</button>`:''}
         </label>
       </div>
-      ${renderCoParentAccessSection(p)}
     </div>`;
   }).join('') : '<div class="empty"><div class="empty-icon">👥</div><div class="empty-text">No players added yet</div></div>';
+
+  renderHouseholdSection();
 }
 
-function renderCoParentAccessSection(player) {
-  const status = inviteStatusFor(player.id);
-  let body = '';
-  if (status.state === 'active') {
-    const expDate = new Date(status.invite.expiresAt);
-    body = `
-      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;">
-        Invite pending — expires ${expDate.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })}
-      </div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;">
-        <button class="btn btn-sm" onclick="clickCopyInvite('${status.invite.token}')">Copy Link</button>
-        <button class="btn btn-sm" onclick="clickRegenerateInvite('${player.id}')">Regenerate</button>
-      </div>`;
-  } else if (status.state === 'claimed') {
-    body = `
-      <div style="font-size:12px;color:var(--teal-dark);margin-bottom:6px;">✓ Invite claimed</div>
-      <button class="btn btn-sm" onclick="clickGenerateInvite('${player.id}')">Generate New Invite</button>`;
-  } else if (status.state === 'expired') {
-    body = `
-      <div style="font-size:12px;color:#A32D2D;margin-bottom:6px;">Invite expired</div>
-      <button class="btn btn-sm" onclick="clickGenerateInvite('${player.id}')">Generate New Invite</button>`;
-  } else {
-    body = `<button class="btn btn-sm" onclick="clickGenerateInvite('${player.id}')">Generate Invite Link</button>`;
+function renderHouseholdSection() {
+  const container = document.getElementById('pa-household-section');
+  if (!container) return;
+  if (!state.household) {
+    container.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);">No household record yet. Try refreshing.</div>';
+    return;
   }
-  return `
-    <div style="margin-top:10px;padding:10px 12px;background:var(--gray-bg);border-radius:6px;">
-      <div style="font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">
-        Co-Parent Access for ${player.first}
-      </div>
-      ${body}
-    </div>
-  `;
+  const members = state.householdMembers || [];
+  const memberRows = members.length ? members.map(function(m) {
+    const youTag = m.isSelf ? ' <span style="font-size:11px;color:var(--text-secondary);font-style:italic;">(you)</span>' : '';
+    const joined = m.joinedAt
+      ? new Date(m.joinedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+      : '';
+    const right = m.isPrimary
+      ? '<span style="font-size:11px;color:var(--text-secondary);">primary</span>'
+      : `<span style="font-size:11px;color:var(--text-secondary);">joined ${joined}</span>`;
+    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--gray-border);">
+      <span style="font-size:13px;">${m.first} ${m.last}${youTag}</span>
+      ${right}
+    </div>`;
+  }).join('') : '<div style="font-size:12px;color:var(--text-secondary);font-style:italic;padding:6px 0;">No members yet.</div>';
+
+  const active = householdActiveInvite();
+  let inviteBlock;
+  if (active) {
+    const expDate = new Date(active.expiresAt);
+    inviteBlock = `
+      <div style="margin-top:12px;padding:10px 12px;background:var(--gray-bg);border-radius:6px;">
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;">
+          Pending invite — expires ${expDate.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })}
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button class="btn btn-sm" onclick="clickCopyInvite('${active.token}')">Copy Link</button>
+          <button class="btn btn-sm" onclick="clickRegenerateHouseholdInvite()">Regenerate</button>
+        </div>
+      </div>`;
+  } else {
+    inviteBlock = `
+      <div style="margin-top:12px;">
+        <button class="btn btn-primary btn-sm" onclick="clickGenerateHouseholdInvite()">Invite Someone to This Account</button>
+        <div style="font-size:11px;color:var(--text-secondary);margin-top:6px;line-height:1.5;">
+          Anyone who joins gets access to your whole household — current and future kids.
+        </div>
+      </div>`;
+  }
+
+  container.innerHTML = memberRows + inviteBlock;
 }
 
 function saveParentInfo() {
@@ -6085,9 +6173,28 @@ async function saveChild() {
       active: true
     };
     try {
-      const { error } = await sb.from('players').insert(row);
+      const { data: insertedData, error } = await sb.from('players').insert(row).select().single();
       if (error) { console.error(error); alert('Save failed: ' + error.message); return; }
+      const newPlayerId = insertedData ? insertedData.id : null;
+
+      // Fan out parent_players: primary linkage for self + non-primary for every
+      // other current household member. Auto-grants Mom/Dad/Grandma access to
+      // newly-added kids without further action.
+      if (newPlayerId) {
+        const householdId = state.household ? state.household.id : null;
+        const memberIds = (state.householdMembers || []).map(m => m.id);
+        const otherIds = memberIds.filter(id => id !== state.currentParent.id);
+        const ppRows = [];
+        ppRows.push({ parent_id: state.currentParent.id, player_id: newPlayerId, is_primary: true, household_id: householdId });
+        otherIds.forEach(otherId => {
+          ppRows.push({ parent_id: otherId, player_id: newPlayerId, is_primary: false, household_id: householdId });
+        });
+        const { error: ppErr } = await sb.from('parent_players').insert(ppRows);
+        if (ppErr) console.error('parent_players fan-out error (non-blocking):', ppErr);
+      }
+
       await loadPlayers();
+      await loadHousehold();
       closeModal('child-modal');
       renderParentAccount();
       renderSwitcherPills();
