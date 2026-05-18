@@ -112,3 +112,36 @@ entrypoint = "./functions/send-tournament-payment-confirmation/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/send-tournament-payment-confirmation/*.html" ]
+
+[functions.send-game-added]
+enabled = true
+verify_jwt = true
+import_map = "./functions/send-game-added/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/send-game-added/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/send-game-added/*.html" ]
+
+[functions.send-practice-cancelled]
+enabled = true
+verify_jwt = true
+import_map = "./functions/send-practice-cancelled/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/send-practice-cancelled/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/send-practice-cancelled/*.html" ]
+
+[functions.send-tournament-edited]
+enabled = true
+verify_jwt = true
+import_map = "./functions/send-tournament-edited/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/send-tournament-edited/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/send-tournament-edited/*.html" ]
