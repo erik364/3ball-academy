@@ -19,39 +19,30 @@ function escapeAttr(s: string): string {
 
 type KidInvite = { first_name: string; url: string };
 
-function buildInviteSectionHtml(kidInviteLinks: KidInvite[]): string {
-  if (!kidInviteLinks || kidInviteLinks.length === 0) return "";
-  const rows = kidInviteLinks.map((k) => `
-    <tr>
-      <td style="padding:8px 0;">
-        <div style="font-size:14px;font-weight:600;color:#1A2E1A;">${escapeAttr(k.first_name)}'s account:</div>
-        <a href="${escapeAttr(k.url)}" style="font-size:13px;color:#E8621A;word-break:break-all;">${escapeAttr(k.url)}</a>
-      </td>
-    </tr>
-  `).join("");
+function buildInviteSectionHtml(householdInviteLink: string): string {
+  if (!householdInviteLink) return "";
   return `
     <div style="margin:24px 0 0 0;padding:16px;background:#F4F6F2;border-radius:8px;">
-      <p style="margin:0 0 8px 0;font-size:15px;font-weight:600;color:#1A2E1A;">Share access with a co-parent?</p>
+      <p style="margin:0 0 8px 0;font-size:15px;font-weight:600;color:#1A2E1A;">Share access with your family?</p>
       <p style="margin:0 0 12px 0;font-size:13px;line-height:1.5;color:#5F5E5A;">
-        If your partner or another co-parent should also have access, share these invite links:
+        To give your co-parent, grandparent, or another family member access to your account, share this invite link:
       </p>
-      <table width="100%" cellpadding="0" cellspacing="0">${rows}</table>
+      <a href="${escapeAttr(householdInviteLink)}" style="font-size:13px;color:#E8621A;word-break:break-all;">${escapeAttr(householdInviteLink)}</a>
       <p style="margin:12px 0 0 0;font-size:12px;color:#888780;font-style:italic;">
-        Each link is valid for 7 days and works once.
+        Valid for 7 days. Works once. Anyone who joins gets access to your whole household — including any kids you add later.
       </p>
     </div>
   `;
 }
 
-function buildInviteSectionText(kidInviteLinks: KidInvite[]): string {
-  if (!kidInviteLinks || kidInviteLinks.length === 0) return "";
-  const lines = kidInviteLinks.map((k) => `  ${k.first_name}'s account:\n  ${k.url}`).join("\n\n");
-  return `\n\nIf your partner or another co-parent should also have access to your child's account, you can share these invite links with them:\n\n${lines}\n\nThese invite links are valid for 7 days. Each link works once.`;
+function buildInviteSectionText(householdInviteLink: string): string {
+  if (!householdInviteLink) return "";
+  return `\n\nTo give your co-parent, grandparent, or another family member access to your account, share this invite link:\n\n${householdInviteLink}\n\nValid for 7 days. Works once. Anyone who joins gets access to your whole household — including any kids you add later.`;
 }
 
-function buildHtml(first: string, kidInviteLinks: KidInvite[]): string {
+function buildHtml(first: string, householdInviteLink: string): string {
   const safeFirst = (first || "there").replace(/[<>&"]/g, "");
-  const inviteHtml = buildInviteSectionHtml(kidInviteLinks);
+  const inviteHtml = buildInviteSectionHtml(householdInviteLink);
   return `<!DOCTYPE html>
 <html>
   <head>
@@ -105,9 +96,9 @@ function buildHtml(first: string, kidInviteLinks: KidInvite[]): string {
 </html>`;
 }
 
-function buildText(first: string, kidInviteLinks: KidInvite[]): string {
+function buildText(first: string, householdInviteLink: string): string {
   const safeFirst = first || "there";
-  const inviteText = buildInviteSectionText(kidInviteLinks);
+  const inviteText = buildInviteSectionText(householdInviteLink);
   return `Hi ${safeFirst},
 
 Thanks for registering with 3Ball Academy! Your account is being reviewed and you'll typically hear back within 24 hours.
@@ -130,7 +121,13 @@ serve(async (req) => {
     const body = await req.json();
     const email: string = body.email;
     const first: string = body.first || body.first_name || "";
-    const kidInviteLinks: KidInvite[] = Array.isArray(body.kid_invite_links) ? body.kid_invite_links : [];
+    // New shape: household-scoped single invite. Legacy callers passing
+    // kid_invite_links (per-kid array) are collapsed to the first url for
+    // backward compatibility.
+    let householdInviteLink: string = body.household_invite_link || body.household_invite_url || "";
+    if (!householdInviteLink && Array.isArray(body.kid_invite_links) && body.kid_invite_links.length > 0) {
+      householdInviteLink = body.kid_invite_links[0].url || "";
+    }
 
     if (!email) {
       return new Response(
@@ -157,8 +154,8 @@ serve(async (req) => {
         to: [email],
         reply_to: REPLY_TO,
         subject: "Registration received — 3Ball Academy",
-        html: buildHtml(first, kidInviteLinks),
-        text: buildText(first, kidInviteLinks),
+        html: buildHtml(first, householdInviteLink),
+        text: buildText(first, householdInviteLink),
       }),
     });
 
