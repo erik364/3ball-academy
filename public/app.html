@@ -3752,6 +3752,24 @@ async function deletePractice(id) {
   if (!sb) return;
   const p = state.practices.find(x => x.id === id);
   if (!p) return;
+  // Snapshot the practice before deletion so the cancellation email knows
+  // which audience to notify.
+  const snapshot = {
+    groups: Array.isArray(p.groups) ? p.groups : [],
+    date: p.date,
+    start_time: p.start
+  };
+
+  function fireCancelEmail(mode) {
+    try {
+      sb.functions.invoke('send-practice-cancelled', {
+        body: { mode: mode, groups: snapshot.groups, date: snapshot.date, start_time: snapshot.start_time }
+      }).then(function(res) {
+        if (res && res.error) console.error('send-practice-cancelled failed:', res.error);
+        else if (res && res.data) console.log('send-practice-cancelled result:', res.data);
+      }).catch(function(e) { console.error('send-practice-cancelled threw:', e); });
+    } catch (e) { console.error('send-practice-cancelled setup threw:', e); }
+  }
 
   if (p.seriesId) {
     const choice = prompt('This practice is part of a weekly series.\n\nType "this" to delete only this practice, or "future" to delete this and all future practices in the series.\n\n(Leave blank to cancel.)');
@@ -3765,6 +3783,7 @@ async function deletePractice(id) {
       await loadSchedule();
       renderPractices(practiceFilter);
       toast('Practice deleted.');
+      fireCancelEmail('one_off');
     } else {
       const { error } = await sb.from('practices')
         .delete()
@@ -3774,6 +3793,7 @@ async function deletePractice(id) {
       await loadSchedule();
       renderPractices(practiceFilter);
       toast('Practice and all future series occurrences deleted.');
+      fireCancelEmail('series_remaining');
     }
     return;
   }
@@ -3784,6 +3804,7 @@ async function deletePractice(id) {
   await loadSchedule();
   renderPractices(practiceFilter);
   toast('Practice deleted.');
+  fireCancelEmail('one_off');
 }
 
 // ===== TOURNAMENTS =====
@@ -3875,6 +3896,28 @@ function openTournamentModal(id) {
   openModal('tournament-modal');
 }
 function editTournament(id) { openTournamentModal(id); }
+function buildTournamentChangesSummary(prev, next) {
+  if (!prev) return '';
+  const parts = [];
+  if (prev.name !== next.name) parts.push(`Name changed to "${next.name}"`);
+  if (prev.start_date !== next.start_date || prev.end_date !== next.end_date) {
+    const fmt = function(iso) {
+      if (!iso) return '';
+      const [y, m, d] = iso.split('-').map(Number);
+      const dt = new Date(y, m - 1, d);
+      return dt.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    };
+    const prevRange = prev.start_date === prev.end_date ? fmt(prev.start_date) : `${fmt(prev.start_date)} – ${fmt(prev.end_date)}`;
+    const nextRange = next.start_date === next.end_date ? fmt(next.start_date) : `${fmt(next.start_date)} – ${fmt(next.end_date)}`;
+    parts.push(`Dates changed from ${prevRange} to ${nextRange}`);
+  }
+  const prevTeams = (prev.teams || []).slice().sort().join(',');
+  const nextTeams = (next.teams || []).slice().sort().join(',');
+  if (prevTeams !== nextTeams) parts.push(`Participating groups updated to ${(next.teams || []).join(', ')}`);
+  if ((prev.notes || '') !== (next.notes || '')) parts.push('Notes updated');
+  return parts.join('\n');
+}
+
 async function saveTournament() {
   if (!document.getElementById('t-name').value || !document.getElementById('t-start').value) { alert('Name and start date required.'); return; }
   const teams = Array.from(
@@ -3895,9 +3938,26 @@ async function saveTournament() {
 
   if (!sb) { alert('Auth not ready.'); return; }
 
+  // Capture pre-edit snapshot for the changes summary email
+  let prevSnapshot = null;
+  if (state.editingId) {
+    const prevTour = state.tournaments.find(x => x.id === state.editingId);
+    if (prevTour) {
+      prevSnapshot = {
+        name: prevTour.name,
+        start_date: prevTour.startDate,
+        end_date: prevTour.endDate,
+        notes: prevTour.notes || '',
+        teams: Array.isArray(prevTour.teams) ? prevTour.teams : []
+      };
+    }
+  }
+
   try {
-    if (state.editingId) {
-      const { error } = await sb.from('tournaments').update(row).eq('id', state.editingId);
+    const editing = !!state.editingId;
+    const editingId = state.editingId;
+    if (editing) {
+      const { error } = await sb.from('tournaments').update(row).eq('id', editingId);
       if (error) { alert('Could not save: ' + error.message); return; }
       toast('Tournament updated!');
     } else {
@@ -3909,6 +3969,22 @@ async function saveTournament() {
     await loadSchedule();
     renderTournaments();
     if (state.viewingTournamentId) renderTournamentDetail();
+
+    // Fire tournament-edited notification on real edits with a non-empty diff.
+    // Function self-gates on "no rostered players" — no email if no audience.
+    if (editing && prevSnapshot) {
+      const summary = buildTournamentChangesSummary(prevSnapshot, row);
+      if (summary && summary.trim()) {
+        try {
+          sb.functions.invoke('send-tournament-edited', {
+            body: { tournament_id: editingId, changes_summary: summary }
+          }).then(function(res) {
+            if (res && res.error) console.error('send-tournament-edited failed:', res.error);
+            else if (res && res.data) console.log('send-tournament-edited result:', res.data);
+          }).catch(function(e) { console.error('send-tournament-edited threw:', e); });
+        } catch (e) { console.error('send-tournament-edited setup threw:', e); }
+      }
+    }
   } catch (e) {
     console.error('saveTournament threw:', e);
     alert('Could not save the tournament.');
@@ -4395,18 +4471,33 @@ async function saveGame() {
   }
 
   try {
+    let newGameId = null;
     if (state.editingId) {
       const { error } = await sb.from('tournament_games').update(row).eq('id', state.editingId);
       if (error) { console.error(error); alert('Save failed: ' + error.message); return; }
       toast('Game updated!');
     } else {
-      const { error } = await sb.from('tournament_games').insert(row);
+      const { data, error } = await sb.from('tournament_games').insert(row).select().single();
       if (error) { console.error(error); alert('Save failed: ' + error.message); return; }
+      newGameId = data ? data.id : null;
       toast('Game added!');
     }
     await loadTournamentGames();
     closeModal('game-modal');
     renderTournamentDetail();
+
+    // Notify rostered kids' households when a new game is added (skip on edit
+    // — edit is a known "tournament-edited" gap we punt on this release).
+    if (newGameId && row.tournament_team_id) {
+      try {
+        sb.functions.invoke('send-game-added', {
+          body: { game_id: newGameId, tournament_team_id: row.tournament_team_id }
+        }).then(function(res) {
+          if (res && res.error) console.error('send-game-added failed:', res.error);
+          else if (res && res.data) console.log('send-game-added result:', res.data);
+        }).catch(function(e) { console.error('send-game-added threw:', e); });
+      } catch (e) { console.error('send-game-added setup threw:', e); }
+    }
   } catch (e) {
     console.error('saveGame error:', e);
     alert('Save failed: ' + e.message);
