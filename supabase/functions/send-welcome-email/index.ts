@@ -137,7 +137,7 @@ async function lookupHouseholdInviteLink(parent_user_id: string): Promise<string
       return "";
     }
     if (!invites || invites.length === 0) return "";
-    return `${APP_URL}/?invite=${encodeURIComponent(invites[0].token)}`;
+    return `${APP_URL}/invite/${encodeURIComponent(invites[0].token)}`;
   } catch (e) {
     console.error("lookupHouseholdInviteLink threw:", e);
     return "";
