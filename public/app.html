@@ -1472,7 +1472,7 @@ body:not([data-role="admin"]) .btn.admin-only {
             <div style="font-size:11px;color:var(--text-secondary);">iPhone, iPad, Mac — one tap</div>
           </div>
         </div>
-        <a id="subscribe-webcal-link" href="#" onclick="return openWebcalSubscribe(this);" style="display:block;background:#000;color:#fff;text-align:center;padding:10px;border-radius:8px;text-decoration:none;font-size:13px;font-weight:600;margin-bottom:8px;">Add to Apple Calendar</a>
+        <a id="subscribe-webcal-link" href="#" target="_blank" rel="noopener" style="display:block;background:#000;color:#fff;text-align:center;padding:10px;border-radius:8px;text-decoration:none;font-size:13px;font-weight:600;margin-bottom:8px;">Add to Apple Calendar</a>
         <button type="button" class="btn btn-sm" style="width:100%;" onclick="copySubscribeUrl('webcal')">Copy webcal:// URL</button>
       </div>
 
@@ -7583,15 +7583,6 @@ function openSubscribeModalForUrls(title, urls, intro) {
     'https://calendar.google.com/calendar/r?cid=' + encodeURIComponent(urls.webcal);
   window._subUrls = urls;
   openModal('subscribe-modal');
-}
-
-// Some iOS contexts (Safari standalone, in-app webviews, occasionally regular
-// Safari) drop a pure <a href="webcal://"> tap. Re-issuing the navigation via
-// window.location.href in the same user gesture gives a second chance to hand
-// off to Calendar.app. Returning true lets the anchor's default also fire.
-function openWebcalSubscribe(el) {
-  try { window.location.href = el.href; } catch (_) {}
-  return true;
 }
 
 function copySubscribeUrl(which) {
