@@ -1833,6 +1833,7 @@ let state = {
   parentInvites: [],
   household: null,
   householdMembers: [],
+  myPlayerIds: new Set(),
   tournamentGameRsvps: [],
   parents: [],
   players: [],
@@ -2272,6 +2273,22 @@ async function deletePlayerNote(noteId) {
 // Initialize state slot
 if (typeof state.playerNotes === 'undefined') state.playerNotes = [];
   // ===== Players: real Supabase data =====
+function mapPlayerRow(row) {
+  return {
+    id: row.id,
+    first: row.first,
+    last: row.last,
+    team: row.team || '',
+    grad: row.grad_year || '',
+    jersey: row.jersey || '',
+    parentId: row.parent_id,
+    waiver: !!row.waiver_signed,
+    active: row.active !== false,
+    paidMonths: row.paid_months || [],
+    calendarToken: row.calendar_token || null
+  };
+}
+
 async function loadPlayers() {
   if (!sb) return;
   try {
@@ -2280,26 +2297,53 @@ async function loadPlayers() {
       console.error('loadPlayers error:', error);
       return;
     }
-    state.players = (data || []).map(function(row) {
-      return {
-        id: row.id,
-        first: row.first,
-        last: row.last,
-        team: row.team || '',
-        grad: row.grad_year || '',
-        jersey: row.jersey || '',
-        parentId: row.parent_id,
-        waiver: !!row.waiver_signed,
-        active: row.active !== false,
-        paidMonths: row.paid_months || [],
-        calendarToken: row.calendar_token || null
-      };
-    });
+    const rows = data || [];
+    state.players = rows.map(mapPlayerRow);
     state.parents.forEach(function(p) {
       p.playerIds = state.players.filter(function(pl) { return pl.parentId === p.id; }).map(function(pl) { return pl.id; });
     });
   } catch (e) {
     console.error('loadPlayers threw:', e);
+  }
+}
+
+// Populate state.myPlayerIds with the player_ids the current parent has
+// access to. Combines legacy players.parent_id (primary parent) with
+// parent_players linkages (household members). For any player_id we know
+// about via parent_players but that didn't come through the players query
+// (RLS may hide non-primary linkages from the players table), also pull
+// the row in via a separate id-filtered fetch and merge into state.players.
+async function loadMyPlayerLinks() {
+  state.myPlayerIds = new Set();
+  if (!sb || !state.currentParent) return;
+  try {
+    // Legacy primary linkages from state.players (already loaded)
+    state.players.forEach(function(p) {
+      if (p.parentId === state.currentParent.id) state.myPlayerIds.add(p.id);
+    });
+
+    // parent_players linkages — the new household-aware source of truth
+    const { data: links, error: lErr } = await sb.from('parent_players')
+      .select('player_id')
+      .eq('parent_id', state.currentParent.id);
+    if (lErr) { console.error('loadMyPlayerLinks parent_players error:', lErr); return; }
+    const linkedIds = (links || []).map(function(r) { return r.player_id; }).filter(Boolean);
+    linkedIds.forEach(function(id) { state.myPlayerIds.add(id); });
+
+    // Backfill state.players for any linked id missing from the main load
+    // (legacy RLS may not expose non-primary rows on the players table itself).
+    const existingIds = new Set(state.players.map(function(p) { return p.id; }));
+    const missing = linkedIds.filter(function(id) { return !existingIds.has(id); });
+    if (missing.length > 0) {
+      const { data: extraRows, error: exErr } = await sb.from('players').select('*').in('id', missing);
+      if (exErr) {
+        console.error('loadMyPlayerLinks backfill error:', exErr);
+      } else if (extraRows && extraRows.length > 0) {
+        state.players = state.players.concat(extraRows.map(mapPlayerRow));
+      }
+    }
+  } catch (e) {
+    console.error('loadMyPlayerLinks threw:', e);
   }
 }
 async function loadParents() {
@@ -2668,7 +2712,7 @@ function doLogin() {
         };
         // Parent-scoped loaders run AFTER state.currentParent is set —
         // their guards depend on it.
-        await Promise.all([loadParentInvites(), loadHousehold()]);
+        await Promise.all([loadParentInvites(), loadHousehold(), loadMyPlayerLinks()]);
         enterApp('parent');
       }
     });
@@ -2689,7 +2733,7 @@ Promise.all([loadLocations(), loadCoaches(), loadParents(), loadPlayers(), loadP
 
     // For parents: pick the first kid as default current player, render switcher
     if (state.currentParent) {
-  var myKids = state.players.filter(function(p) { return p.parentId === state.currentParent.id && p.active !== false; });
+  var myKids = state.players.filter(function(p) { return state.myPlayerIds.has(p.id) && p.active !== false; });
   if (myKids.length > 0) {
     var firstKid = myKids[0];
     state.currentPlayer = firstKid;
@@ -2886,7 +2930,7 @@ function submitNewPassword() {
           };
           // Parent-scoped loaders run AFTER state.currentParent is set —
           // their guards depend on it.
-          await Promise.all([loadParentInvites(), loadHousehold()]);
+          await Promise.all([loadParentInvites(), loadHousehold(), loadMyPlayerLinks()]);
           enterApp('parent');
         }
       });
@@ -6113,7 +6157,7 @@ function renderParentAccount() {
   document.getElementById('pa-phone').value = parent.phone || '';
   document.getElementById('pa-pass').value  = '';
 
-  const myPlayers = state.players.filter(p => p.parentId === parent.id);
+  const myPlayers = state.players.filter(p => state.myPlayerIds.has(p.id));
   const list = document.getElementById('pa-players-list');
   list.innerHTML = myPlayers.length ? myPlayers.map(p => {
     const isViewing = state.currentUser && state.currentUser.id === p.id;
@@ -7180,7 +7224,7 @@ function renderSwitcherPills() {
   const parent = state.currentParent;
   const switcherDiv = document.getElementById('player-switcher');
   if (!parent || !switcherDiv) return;
-  const myPlayers = state.players.filter(p => p.parentId === parent.id && p.active !== false);
+  const myPlayers = state.players.filter(p => state.myPlayerIds.has(p.id) && p.active !== false);
   // Only show switcher if multiple players
   if (myPlayers.length < 2) { switcherDiv.style.display = 'none'; return; }
   switcherDiv.style.display = 'block';
@@ -7500,7 +7544,7 @@ function openMobileMoreMenu() {
 
   // Parent-only: append "Viewing Player" switcher when 2+ kids on this account.
   if (activeNav.id === 'player-nav' && state.currentParent) {
-    const myPlayers = state.players.filter(p => p.parentId === state.currentParent.id && p.active !== false);
+    const myPlayers = state.players.filter(p => state.myPlayerIds.has(p.id) && p.active !== false);
     if (myPlayers.length >= 2) {
       const activeId = state.currentUser ? state.currentUser.id : null;
       html += `<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--gray-border);">
