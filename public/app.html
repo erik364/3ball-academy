@@ -1063,7 +1063,8 @@ body:not([data-role="admin"]) .btn.admin-only {
         <div class="page" id="page-roster">
           <div class="section-header">
             <span class="section-title">Player Roster</span>
-            <div style="display:flex;gap:8px;">
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <button class="btn btn-sm btn-primary admin-only" id="roster-email-btn" onclick="openRosterEmailModal()" disabled style="opacity:0.5;">✉️ Email Selected (0)</button>
               <select class="form-select" style="width:auto;" id="roster-filter-team" onchange="renderRoster()">
                 <option value="">All groups</option>
               </select>
@@ -1078,6 +1079,7 @@ body:not([data-role="admin"]) .btn.admin-only {
             <div class="table-wrap">
               <table>
                 <thead><tr>
+                  <th style="width:32px;text-align:center;"><input type="checkbox" id="roster-select-all" onchange="rosterSelectAll(this.checked)"></th>
                   <th>Player</th><th>#</th><th>Group</th><th>Grad Year</th><th>Parent/Guardian</th><th>Waiver</th><th>Attendance Rate</th><th>Last Paid</th><th>Current Month</th><th>Status</th>
                 </tr></thead>
                 <tbody id="roster-table"></tbody>
@@ -1485,6 +1487,34 @@ body:not([data-role="admin"]) .btn.admin-only {
   </div>
 </div>
 
+<!-- ===== ROSTER EMAIL MODAL (admin) ===== -->
+<div class="modal-overlay" id="roster-email-modal">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-header">
+      <span class="modal-title">Message Parents</span>
+      <button class="modal-close" onclick="closeModal('roster-email-modal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="rem-recipient-summary" style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;padding:10px 12px;background:var(--gray-bg);border-radius:8px;">—</div>
+      <div class="form-group">
+        <label class="form-label">Subject</label>
+        <input class="form-input" id="rem-subject" type="text" maxlength="160" oninput="updateRosterEmailSendState()">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Message</label>
+        <textarea class="form-input" id="rem-message" rows="8" oninput="updateRosterEmailSendState()" style="resize:vertical;font-family:inherit;"></textarea>
+      </div>
+      <div style="font-size:12px;color:var(--text-secondary);margin-top:8px;">
+        Replies will go to: <span id="rem-reply-to" style="font-weight:600;color:var(--text);">—</span>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('roster-email-modal')">Cancel</button>
+      <button class="btn btn-primary" id="rem-send-btn" onclick="sendRosterMessage()" disabled style="opacity:0.5;">Send</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== GROUP MODAL (admin) ===== -->
 <div class="modal-overlay" id="group-modal">
   <div class="modal" style="max-width:420px;">
@@ -1828,6 +1858,7 @@ let state = {
   editingGameTeamId: null,
   coaches: [],
   waiver: '',
+  rosterSelection: new Set(),
 };
 
 // ===== HELPERS =====
@@ -4770,6 +4801,121 @@ function renderRoster() {
   });
 }
 
+// ===== ADMIN ROSTER: email selected parents =====
+function rosterToggleSelect(playerId, checked) {
+  if (checked) state.rosterSelection.add(playerId);
+  else state.rosterSelection.delete(playerId);
+  const selAll = document.getElementById('roster-select-all');
+  if (selAll) {
+    const boxes = document.querySelectorAll('#roster-table input[data-roster-row]');
+    selAll.checked = boxes.length > 0 && Array.from(boxes).every(b => b.checked);
+  }
+  updateRosterEmailButton();
+}
+
+function rosterSelectAll(checked) {
+  const boxes = document.querySelectorAll('#roster-table input[data-roster-row]');
+  boxes.forEach(b => {
+    b.checked = checked;
+    const id = b.getAttribute('data-roster-row');
+    if (checked) state.rosterSelection.add(id);
+    else state.rosterSelection.delete(id);
+  });
+  updateRosterEmailButton();
+}
+
+function updateRosterEmailButton() {
+  const btn = document.getElementById('roster-email-btn');
+  if (!btn) return;
+  const n = state.rosterSelection.size;
+  btn.textContent = '✉️ Email Selected (' + n + ')';
+  btn.disabled = n === 0;
+  btn.style.opacity = n === 0 ? '0.5' : '1';
+}
+
+function openRosterEmailModal() {
+  if (state.rosterSelection.size === 0) return;
+  const coach = state.currentCoach;
+  if (!coach || !coach.isAdmin) {
+    toast('Admin only.');
+    return;
+  }
+  // Resolve linked-parent count from client state where available (parent_players
+  // isn't loaded broadly client-side; fall back to legacy players.parent_id which
+  // covers primary parents — actual fan-out happens server-side).
+  const selectedIds = Array.from(state.rosterSelection);
+  const parentIds = new Set();
+  selectedIds.forEach(id => {
+    const p = state.players.find(x => x.id === id);
+    if (p && p.parentId) parentIds.add(p.parentId);
+  });
+  const playerCount = selectedIds.length;
+  const recipientLowerBound = parentIds.size;
+  document.getElementById('rem-recipient-summary').innerHTML =
+    'Sending to parents of <strong>' + playerCount + '</strong> player' + (playerCount === 1 ? '' : 's') +
+    ' (≥' + recipientLowerBound + ' recipient' + (recipientLowerBound === 1 ? '' : 's') +
+    '). Co-parents linked via household will also receive a copy.';
+  document.getElementById('rem-reply-to').textContent = coach.email || '—';
+  document.getElementById('rem-subject').value = '';
+  document.getElementById('rem-message').value = '';
+  updateRosterEmailSendState();
+  openModal('roster-email-modal');
+}
+
+function updateRosterEmailSendState() {
+  const subject = document.getElementById('rem-subject').value.trim();
+  const message = document.getElementById('rem-message').value.trim();
+  const btn = document.getElementById('rem-send-btn');
+  const ok = subject.length > 0 && message.length > 0;
+  btn.disabled = !ok;
+  btn.style.opacity = ok ? '1' : '0.5';
+}
+
+async function sendRosterMessage() {
+  const btn = document.getElementById('rem-send-btn');
+  const subject = document.getElementById('rem-subject').value.trim();
+  const message = document.getElementById('rem-message').value.trim();
+  const coach = state.currentCoach;
+  if (!subject || !message) return;
+  if (!coach || !coach.email) { toast('Could not determine sender email.'); return; }
+  if (state.rosterSelection.size === 0) { toast('No players selected.'); return; }
+
+  btn.disabled = true;
+  btn.style.opacity = '0.5';
+  btn.textContent = 'Sending…';
+
+  try {
+    const { data, error } = await sb.functions.invoke('send-roster-message', {
+      body: {
+        player_ids: Array.from(state.rosterSelection),
+        subject: subject,
+        message: message,
+        reply_to: coach.email
+      }
+    });
+    if (error) {
+      console.error('send-roster-message error:', error);
+      toast('Send failed: ' + (error.message || 'unknown error'));
+      btn.disabled = false;
+      btn.style.opacity = '1';
+      btn.textContent = 'Send';
+      return;
+    }
+    const sent = data && data.sent ? data.sent : 0;
+    const recipients = data && data.recipients ? data.recipients : 0;
+    closeModal('roster-email-modal');
+    state.rosterSelection.clear();
+    renderRoster();
+    toast('Sent to ' + sent + ' of ' + recipients + ' recipient' + (recipients === 1 ? '' : 's') + '.');
+  } catch (e) {
+    console.error('sendRosterMessage threw:', e);
+    toast('Send failed.');
+    btn.disabled = false;
+    btn.style.opacity = '1';
+    btn.textContent = 'Send';
+  }
+}
+
 function renderRosterTable(opts) {
   const tb = document.getElementById(opts.containerId);
   if (!tb) return;
@@ -4804,12 +4950,19 @@ function renderRosterTable(opts) {
     return;
   }
 
-  // Admin path: container IS a tbody
+  // Admin path: container IS a tbody. Drop stale selections that point at players
+  // no longer in the visible set, then re-render.
+  const visibleIds = new Set(players.map(pl => pl.id));
+  state.rosterSelection.forEach(id => { if (!visibleIds.has(id)) state.rosterSelection.delete(id); });
   if (!players.length) {
-    tb.innerHTML = '<tr><td colspan="10"><div class="empty"><div class="empty-icon">👥</div><div class="empty-text">No players found</div></div></td></tr>';
+    tb.innerHTML = '<tr><td colspan="11"><div class="empty"><div class="empty-icon">👥</div><div class="empty-text">No players found</div></div></td></tr>';
+    updateRosterEmailButton();
     return;
   }
   tb.innerHTML = players.map(p => buildRosterRow(p, true)).join('');
+  const selAll = document.getElementById('roster-select-all');
+  if (selAll) selAll.checked = players.every(pl => state.rosterSelection.has(pl.id));
+  updateRosterEmailButton();
 }
 
 function buildRosterRow(p, includeAdminCols) {
@@ -4822,8 +4975,12 @@ function buildRosterRow(p, includeAdminCols) {
   const parentPhone = parent ? (parent.phone || '') : '';
 
   const rowStyle = (p.active === false) ? ' style="opacity:0.55;"' : '';
-  let row = '<tr' + rowStyle + '>'
-    + '<td><div style="display:flex;align-items:center;gap:9px;">'
+  let row = '<tr' + rowStyle + '>';
+  if (includeAdminCols) {
+    const checked = state.rosterSelection.has(p.id) ? ' checked' : '';
+    row += '<td style="text-align:center;"><input type="checkbox" data-roster-row="' + p.id + '" onchange="rosterToggleSelect(\'' + p.id + '\', this.checked)"' + checked + '></td>';
+  }
+  row += '<td><div style="display:flex;align-items:center;gap:9px;">'
     + '<div class="av av-' + teamColor(p.team) + '">' + initials(p) + '</div>'
     + '<div><div style="font-weight:500;cursor:pointer;color:var(--green-dark);text-decoration:underline;text-underline-offset:2px;" onclick="openPlayerDetail(\'' + p.id + '\')">' + p.first + ' ' + p.last + '</div>'
     + '<div style="font-size:11px;color:var(--text-secondary);">' + parentEmail + '</div>'
