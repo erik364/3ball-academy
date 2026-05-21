@@ -102,6 +102,12 @@ entrypoint = "./functions/update-coach-role/index.ts"
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/update-coach-role/*.html" ]
 
+[functions.send-roster-message]
+enabled = true
+verify_jwt = true
+import_map = "./functions/send-roster-message/deno.json"
+entrypoint = "./functions/send-roster-message/index.ts"
+
 [functions.send-tournament-payment-confirmation]
 enabled = true
 verify_jwt = true
