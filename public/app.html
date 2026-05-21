@@ -1185,15 +1185,9 @@ body:not([data-role="admin"]) .btn.admin-only {
               <div class="stat-sub">3Ball Academy</div>
             </div>
           </div>
-          <div class="two-col">
-            <div class="panel">
-              <div class="panel-header"><span class="panel-title">Upcoming practices</span></div>
-              <div id="player-upcoming"></div>
-            </div>
-            <div class="panel">
-              <div class="panel-header"><span class="panel-title">Upcoming tournaments</span></div>
-              <div id="player-tournaments-home"></div>
-            </div>
+          <div class="panel">
+            <div class="panel-header"><span class="panel-title">Upcoming</span></div>
+            <div id="player-upcoming-feed"></div>
           </div>
         </div>
 
@@ -1834,7 +1828,6 @@ let state = {
   editingGameTeamId: null,
   coaches: [],
   waiver: '',
-  homeRsvpEditing: new Set()
 };
 
 // ===== HELPERS =====
@@ -5118,6 +5111,126 @@ async function saveWaiver() {
 function saveAcademyInfo() { toast('Academy info saved!'); }
 
 // ===== PLAYER PORTAL =====
+// Merged upcoming feed used by both parent Home and coach Schedule.
+// ctx is either { role: 'parent', playerIds: Set|Array } or
+// { role: 'coach', coachId, teams: [...] }. Returns events sorted ascending
+// by (date, start_time), today-forward, capped at opts.limit.
+function buildUpcomingEvents(ctx, opts) {
+  opts = opts || {};
+  const limit = opts.limit || 10;
+  const todayStr = today();
+  const playerIdSet = new Set();
+  const teamSet = new Set();
+  if (ctx.role === 'parent') {
+    (Array.isArray(ctx.playerIds) ? ctx.playerIds : Array.from(ctx.playerIds || [])).forEach(id => playerIdSet.add(id));
+    state.players.forEach(p => {
+      if (playerIdSet.has(p.id) && p.team) teamSet.add(p.team);
+    });
+  } else if (ctx.role === 'coach') {
+    (ctx.teams || []).forEach(t => teamSet.add(t));
+  }
+
+  const events = [];
+
+  state.practices.forEach(pr => {
+    if (!pr.date || pr.date < todayStr) return;
+    const include = ctx.role === 'parent'
+      ? (pr.groups || []).some(g => teamSet.has(g))
+      : ((pr.coachIds || []).includes(ctx.coachId) || (pr.groups || []).some(g => teamSet.has(g)));
+    if (!include) return;
+    events.push({
+      type: 'practice', id: pr.id, date: pr.date,
+      start: pr.start || '', end: pr.end || '',
+      location: pr.location || '', groups: pr.groups || [],
+      sortKey: pr.date + (pr.start || '99:99')
+    });
+  });
+
+  state.tournaments.forEach(t => {
+    if (!t.endDate || t.endDate < todayStr) return;
+    let include = false;
+    if (ctx.role === 'parent') {
+      const rostered = state.tournamentTeams.some(team =>
+        team.tournamentId === t.id && (team.playerIds || []).some(pid => playerIdSet.has(pid))
+      );
+      const invited = (t.teams || []).some(g => teamSet.has(g));
+      include = rostered || invited;
+    } else {
+      const coached = state.tournamentTeams.some(team =>
+        team.tournamentId === t.id && (team.coachIds || []).includes(ctx.coachId)
+      );
+      const teamMatch = (t.teams || []).some(g => teamSet.has(g));
+      include = coached || teamMatch;
+    }
+    if (!include) return;
+    events.push({
+      type: 'tournament', id: t.id, date: t.startDate,
+      endDate: t.endDate, name: t.name,
+      sortKey: t.startDate + '00:00'
+    });
+  });
+
+  state.tournamentGames.forEach(g => {
+    if (!g.date || g.date < todayStr) return;
+    const team = state.tournamentTeams.find(tt => tt.id === g.tournamentTeamId);
+    if (!team) return;
+    const include = ctx.role === 'parent'
+      ? (team.playerIds || []).some(pid => playerIdSet.has(pid))
+      : (team.coachIds || []).includes(ctx.coachId);
+    if (!include) return;
+    const tournament = state.tournaments.find(t => t.id === team.tournamentId);
+    events.push({
+      type: 'game', id: g.id, date: g.date,
+      start: g.start || '', end: g.end || '',
+      location: g.location || '', opponent: g.opponent || '',
+      teamName: team.name,
+      tournamentName: tournament ? tournament.name : 'Tournament',
+      sortKey: g.date + (g.start || '99:99')
+    });
+  });
+
+  events.sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+  return events.slice(0, limit);
+}
+
+function renderUpcomingFeed(containerId, events) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  if (!events.length) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon">📅</div><div class="empty-text">Nothing coming up</div></div>';
+    return;
+  }
+  el.innerHTML = events.map(function(e) {
+    let badge, primary, secondary, onclickAttr;
+    if (e.type === 'practice') {
+      badge = '<span class="pill pill-blue" style="flex-shrink:0;">Practice</span>';
+      primary = ((e.groups || []).join(', ') || 'Practice') + ' @ ' + (e.location || 'TBD');
+      secondary = fmtDate(e.date)
+        + (e.start ? ' · ' + fmtTime(e.start) + (e.end ? '–' + fmtTime(e.end) : '') : '');
+      onclickAttr = `onclick="openPracticeDetailModal('${e.id}')"`;
+    } else if (e.type === 'tournament') {
+      badge = '<span class="pill" style="background:#FFF3E0;color:#E65100;border:1px solid #FFCC80;flex-shrink:0;">Tournament</span>';
+      primary = e.name;
+      secondary = fmtDate(e.date) + (e.date !== e.endDate ? ' – ' + fmtDate(e.endDate) : '');
+      onclickAttr = `onclick="openTournamentDetail('${e.id}')"`;
+    } else {
+      badge = '<span class="pill pill-orange" style="flex-shrink:0;">Game</span>';
+      primary = (e.opponent ? 'vs ' + e.opponent : 'Game') + ' · ' + e.teamName;
+      secondary = fmtDate(e.date)
+        + (e.start ? ' · ' + fmtTime(e.start) : '')
+        + (e.location ? ' @ ' + e.location : '');
+      onclickAttr = `onclick="openGameDetailModal('${e.id}')"`;
+    }
+    return `<div ${onclickAttr} style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid var(--gray-border);cursor:pointer;transition:background 0.1s;" onmouseover="this.style.background='var(--gray-bg)'" onmouseout="this.style.background=''">
+      ${badge}
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:13px;font-weight:500;">${primary}</div>
+        <div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">${secondary}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
 function renderPlayerHome() {
   const p = state.currentUser;
   if (!p) return;
@@ -5133,80 +5246,11 @@ function renderPlayerHome() {
     document.getElementById('p-stat-next-time').textContent = 'No upcoming sessions';
   }
 
-  const upcomingPractices = state.practices
-    .filter(pr => pr.date >= today() && (pr.groups || []).includes(p.team))
-    .sort((a, b) => a.date.localeCompare(b.date) || (a.start || '').localeCompare(b.start || ''))
-    .slice(0, 5);
-
-  const pu = document.getElementById('player-upcoming');
-  if (!upcomingPractices.length) {
-    pu.innerHTML = '<div class="empty"><div class="empty-icon">📅</div><div class="empty-text">No upcoming practices</div></div>';
-  } else {
-    pu.innerHTML = upcomingPractices.map(pr => {
-      return `<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--gray-border);cursor:pointer;transition:background 0.1s;" onclick="showPage('player-schedule', null)" onmouseover="this.style.background='var(--gray-bg)'" onmouseout="this.style.background=''">
-        <div style="flex:1;">
-          <div style="font-size:13px;font-weight:500;">${(pr.groups || []).join(', ')} @ ${pr.location || 'TBD'}</div>
-          <div style="font-size:11px;color:var(--text-secondary);">${fmtDate(pr.date)} · ${fmtTime(pr.start)}–${fmtTime(pr.end)}</div>
-        </div>
-      </div>`;
-    }).join('');
-  }
-
-  // Upcoming tournaments: rostered (kid in tournament_teams.playerIds) OR
-  // invited (kid's permanent team in tournaments.teams[] but no roster yet).
-  const upcomingTournaments = state.tournaments.map(t => {
-    if (t.startDate < today()) return null;
-    const isRostered = state.tournamentTeams.some(team =>
-      team.tournamentId === t.id && (team.playerIds || []).includes(p.id)
-    );
-    if (isRostered) return { tournament: t, mode: 'rostered' };
-    const tourTeams = Array.isArray(t.teams) ? t.teams : [];
-    if (p.team && tourTeams.includes(p.team)) return { tournament: t, mode: 'invited' };
-    return null;
-  }).filter(Boolean)
-    .sort((a, b) => a.tournament.startDate.localeCompare(b.tournament.startDate))
-    .slice(0, 5);
-
-  const pt = document.getElementById('player-tournaments-home');
-  if (!upcomingTournaments.length) {
-    pt.innerHTML = '<div class="empty"><div class="empty-icon">🏆</div><div class="empty-text">No upcoming tournaments</div></div>';
-  } else {
-    pt.innerHTML = upcomingTournaments.map(entry => {
-      const t = entry.tournament;
-      const datesStr = fmtDate(t.startDate) + (t.startDate !== t.endDate ? ' – ' + fmtDate(t.endDate) : '');
-      let rsvpUI = '';
-      if (entry.mode === 'invited') {
-        const r = state.tournamentRsvps.find(x => x.tournamentId === t.id && x.playerId === p.id);
-        const ans = r ? r.answer : null;
-        const inEdit = state.homeRsvpEditing.has('tournament:' + t.id);
-        const buttonsHtml = `<div style="display:flex;gap:6px;" onclick="event.stopPropagation();">
-          <button class="btn btn-sm" onclick="event.stopPropagation(); homeRsvpTournament('${t.id}','yes')" style="background:transparent;color:var(--teal-dark);border-color:#9FE1CB;padding:4px 10px;">✓ Yes</button>
-          <button class="btn btn-sm" onclick="event.stopPropagation(); homeRsvpTournament('${t.id}','no')" style="background:transparent;color:#A32D2D;border-color:#F7C1C1;padding:4px 10px;">✗ No</button>
-        </div>`;
-        if (ans === 'yes' || ans === 'no') {
-          if (inEdit) {
-            rsvpUI = buttonsHtml;
-          } else {
-            const pillCls = ans === 'yes' ? 'pill-green' : 'pill-red';
-            const pillLbl = ans === 'yes' ? 'Going ✓' : 'Not going ✗';
-            rsvpUI = `<div style="display:flex;align-items:center;gap:6px;">
-              <span class="pill ${pillCls}">${pillLbl}</span>
-              <a onclick="event.stopPropagation(); homeToggleEditRsvp('tournament:${t.id}')" style="font-size:11px;color:var(--text-secondary);text-decoration:underline;cursor:pointer;">Change</a>
-            </div>`;
-          }
-        } else {
-          rsvpUI = buttonsHtml;
-        }
-      }
-      return `<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--gray-border);cursor:pointer;transition:background 0.1s;" onclick="showPage('player-tournaments', null)" onmouseover="this.style.background='var(--gray-bg)'" onmouseout="this.style.background=''">
-        <div style="flex:1;">
-          <div style="font-size:13px;font-weight:500;">${t.name}</div>
-          <div style="font-size:11px;color:var(--text-secondary);">${datesStr}</div>
-        </div>
-        ${rsvpUI}
-      </div>`;
-    }).join('');
-  }
+  const events = buildUpcomingEvents({
+    role: 'parent',
+    playerIds: Array.from(state.myPlayerIds || [])
+  });
+  renderUpcomingFeed('player-upcoming-feed', events);
 }
 
 function renderPlayerSchedule() {
@@ -5775,21 +5819,6 @@ async function setTournRsvp(tournId, playerId, answer, opts) {
 
 // ----- Home dashboard inline RSVP wrappers -----
 // Goal: silent state-flip on Home, no toast, no navigation, instant render.
-async function homeRsvpTournament(tournamentId, answer) {
-  state.homeRsvpEditing.delete('tournament:' + tournamentId);
-  const playerId = state.currentUser ? state.currentUser.id : null;
-  if (!playerId) return;
-  const promise = setTournRsvp(tournamentId, playerId, answer, { silent: true });
-  renderPlayerHome();
-  await promise;
-  renderPlayerHome();
-}
-function homeToggleEditRsvp(key) {
-  if (state.homeRsvpEditing.has(key)) state.homeRsvpEditing.delete(key);
-  else state.homeRsvpEditing.add(key);
-  renderPlayerHome();
-}
-
 async function setGameRsvp(gameId, playerId, answer) {
   if (!sb) return;
 
@@ -6247,81 +6276,18 @@ function renderCoachSchedule() {
   const container = document.getElementById('coach-schedule-content');
   if (!container) return;
 
-  // Practices the coach is assigned to (via coach_ids in practices table)
-  const myPractices = state.practices.filter(p =>
-    p.coachIds && p.coachIds.includes(coach.id) && !isPast(p.date)
-  );
-
-  // Tournament games for teams where this coach is assigned (via tournament_teams.coach_ids)
-  const myCoachedTeamIds = new Set(
-    state.tournamentTeams
-      .filter(team => (team.coachIds || []).includes(coach.id))
-      .map(team => team.id)
-  );
-
-  const myGames = state.tournamentGames
-    .filter(g => myCoachedTeamIds.has(g.tournamentTeamId) && !isPast(g.date))
-    .map(g => {
-      const team = state.tournamentTeams.find(t => t.id === g.tournamentTeamId);
-      const tournament = team ? state.tournaments.find(t => t.id === team.tournamentId) : null;
-      return {
-        ...g,
-        teamName: team ? team.name : '?',
-        tournamentName: tournament ? tournament.name : 'Tournament'
-      };
-    });
-
-  const all = [
-    ...myPractices.map(p => ({ ...p, _type: 'practice', _date: p.date, _start: p.start })),
-    ...myGames.map(g => ({ ...g, _type: 'game', _date: g.date, _start: g.start }))
-  ].sort((a, b) =>
-    a._date.localeCompare(b._date) ||
-    (a._start || '').localeCompare(b._start || '')
-  );
-
-  if (!all.length) {
-    container.innerHTML = '<div class="panel"><div class="empty"><div class="empty-icon">📅</div><div class="empty-text">No upcoming sessions assigned to you</div></div></div>';
-    return;
-  }
-
   container.innerHTML = `
     <div class="panel">
-      <div class="panel-header"><span class="panel-title">Upcoming sessions assigned to you</span></div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Date</th><th>Session</th><th>Groups</th><th>Location</th></tr></thead>
-          <tbody>
-            ${all.map(item => {
-              const isPractice = item._type === 'practice';
-              const timeStr = item._start
-                ? fmtTime(item._start) + (item.end ? '–' + fmtTime(item.end) : '')
-                : '';
-              const dateLabel = `${fmtDate(item._date)}${timeStr ? ' ' + timeStr : ''}`;
-
-              let sessionLabel;
-              let teamsCell;
-              if (isPractice) {
-                sessionLabel = '📅 Practice';
-                teamsCell = (item.groups || []).join(', ') || '—';
-              } else {
-                const opponentStr = item.opponent ? ' vs ' + item.opponent : '';
-                sessionLabel = `🏆 ${item.tournamentName}${opponentStr}`;
-                teamsCell = item.teamName;
-              }
-
-              const loc = item.location || '—';
-
-              return `<tr>
-                <td style="white-space:nowrap;">${dateLabel}</td>
-                <td>${sessionLabel}</td>
-                <td>${teamsCell}</td>
-                <td>${loc}</td>
-              </tr>`;
-            }).join('')}
-          </tbody>
-        </table>
-      </div>
+      <div class="panel-header"><span class="panel-title">Upcoming</span></div>
+      <div id="coach-upcoming-feed"></div>
     </div>`;
+
+  const events = buildUpcomingEvents({
+    role: 'coach',
+    coachId: coach.id,
+    teams: coach.teams || []
+  });
+  renderUpcomingFeed('coach-upcoming-feed', events);
 }
 
 function renderCoachRoster() {
