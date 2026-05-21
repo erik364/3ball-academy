@@ -183,7 +183,7 @@ body {
 .page.active { display: block; }
 
 /* ===== STAT GRID ===== */
-.stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; margin-bottom: 22px; }
+.stat-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; margin-bottom: 22px; }
 .stat-card {
   background: var(--white); border: 1px solid var(--gray-border);
   border-radius: var(--radius-lg); padding: 14px 16px;
@@ -908,11 +908,6 @@ body:not([data-role="admin"]) .btn.admin-only {
               <div class="stat-label">This Week</div>
               <div class="stat-value" id="stat-practices">0</div>
               <div class="stat-sub">practices scheduled</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-label">Response Rate</div>
-              <div class="stat-value" id="stat-attend">—</div>
-              <div class="stat-sub">across all sessions</div>
             </div>
             <div class="stat-card">
               <div class="stat-label">Tournaments</div>
@@ -3214,18 +3209,6 @@ function renderDashboard() {
   const thisWeek = state.practices.filter(p => p.date >= weekFrom && p.date <= weekTo).length;
   document.getElementById('stat-practices').textContent = thisWeek;
 
-  // Average attendance is now driven by check-ins (day-of attendance signal)
-  // rather than the removed practice RSVPs.
-  const pastPractices = state.practices.filter(p => isPast(p.date));
-  let avgAttend = '—';
-  if (pastPractices.length) {
-    const rates = activePlayers.map(pl => {
-      const attendedCount = pastPractices.filter(p => (p.checkedIn || []).includes(pl.id)).length;
-      return attendedCount / pastPractices.length;
-    });
-    avgAttend = Math.round((rates.reduce((a,b)=>a+b,0)/rates.length)*100) + '%';
-  }
-  document.getElementById('stat-attend').textContent = avgAttend;
   document.getElementById('stat-tournaments').textContent = state.tournaments.filter(t => t.startDate >= today()).length;
 
   // upcoming sessions (practices + tournament games)
