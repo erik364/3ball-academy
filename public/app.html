@@ -208,6 +208,21 @@ body {
 .panel-link { font-size: 12px; color: var(--green-mid); cursor: pointer; background: none; border: none; font-family: 'Barlow', sans-serif; font-weight: 500; }
 .panel-link:hover { text-decoration: underline; }
 
+/* ===== TOGGLE SWITCH (used in player detail Edit tab) ===== */
+.pd-toggle { position: relative; display: inline-block; width: 40px; height: 22px; flex-shrink: 0; }
+.pd-toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
+.pd-toggle-track {
+  position: absolute; inset: 0; cursor: pointer; background: var(--gray-border);
+  border-radius: 22px; transition: background 0.15s;
+}
+.pd-toggle-thumb {
+  position: absolute; top: 2px; left: 2px; width: 18px; height: 18px;
+  background: #fff; border-radius: 50%; transition: transform 0.15s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.18);
+}
+.pd-toggle input:checked + .pd-toggle-track { background: var(--teal); }
+.pd-toggle input:checked + .pd-toggle-track .pd-toggle-thumb { transform: translateX(18px); }
+
 /* ===== TABLES ===== */
 .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; max-width: 100%; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -5141,7 +5156,7 @@ function getPlayerDetailTabsForRole() {
   const role = state.currentUser && state.currentUser.role;
   if (role === 'admin') return ['overview', 'notes', 'attendance', 'rsvps', 'payments', 'edit'];
   if (role === 'coach') return ['overview', 'notes', 'attendance', 'rsvps'];
-  return ['overview', 'attendance', 'rsvps', 'payments', 'edit'];
+  return ['overview', 'attendance', 'rsvps', 'payments'];
 }
 
 function renderPlayerDetailTabs() {
@@ -5169,7 +5184,7 @@ function renderPlayerDetailContent() {
   if (tab === 'overview') {
     container.innerHTML = renderPdOverview(p, role);
   } else if (tab === 'notes') {
-    container.innerHTML = '<div style="text-align:center;color:var(--text-secondary);padding:30px 0;">Notes coming in next update.</div>';
+    renderPdNotes(p);
   } else if (tab === 'attendance') {
     container.innerHTML = '<div style="text-align:center;color:var(--text-secondary);padding:30px 0;">Attendance history will appear here once practices are migrated (Step 8).</div>';
   } else if (tab === 'rsvps') {
@@ -5181,7 +5196,7 @@ function renderPlayerDetailContent() {
       + '</div>';
     renderPaymentGrid(pdState.playerId);
   } else if (tab === 'edit') {
-    container.innerHTML = '<div style="text-align:center;color:var(--text-secondary);padding:30px 0;">Edit form coming in next update.</div>';
+    renderPdEdit(p);
   }
 }
 
@@ -5204,6 +5219,233 @@ function renderPdOverview(p, role) {
   return rows.map(function(r) {
     return '<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--gray-border);"><div style="font-size:13px;color:var(--text-secondary);">' + r.label + '</div><div style="font-size:13px;font-weight:500;text-align:right;">' + r.value + '</div></div>';
   }).join('');
+}
+
+// ===== NOTES TAB =====
+function fmtNoteTimestamp(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  const date = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).toLowerCase().replace(' ', '');
+  return date + ' · ' + time;
+}
+
+function escapeNoteBody(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+    .replace(/\n/g, '<br>');
+}
+
+function renderPdNotes(p) {
+  const container = document.getElementById('pd-content');
+  const composer = `<div style="padding:12px 0 16px;border-bottom:1px solid var(--gray-border);margin-bottom:8px;">
+    <textarea id="pd-notes-input" rows="3" placeholder="Add a note..." style="width:100%;padding:8px 10px;border:1px solid var(--gray-border);border-radius:8px;font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box;"></textarea>
+    <div style="display:flex;justify-content:flex-end;margin-top:8px;">
+      <button class="btn btn-sm btn-primary" id="pd-notes-add-btn" onclick="pdNotesAdd()">Add Note</button>
+    </div>
+  </div>
+  <div id="pd-notes-list"></div>`;
+  container.innerHTML = composer;
+  renderPdNotesList(p.id);
+}
+
+function renderPdNotesList(playerId) {
+  const list = document.getElementById('pd-notes-list');
+  if (!list) return;
+  const notes = (state.playerNotes || [])
+    .filter(n => n.playerId === playerId)
+    .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+  if (!notes.length) {
+    list.innerHTML = '<div style="text-align:center;color:var(--text-secondary);padding:24px 0;font-size:13px;">No notes yet.</div>';
+    return;
+  }
+  list.innerHTML = notes.map(n => `<div style="padding:12px 0;border-bottom:1px solid var(--gray-border);">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px;">
+      <div style="font-size:11px;color:var(--text-secondary);font-weight:500;">${fmtNoteTimestamp(n.createdAt)}</div>
+      <button class="btn btn-sm" style="padding:2px 8px;font-size:11px;" onclick="pdNotesDelete('${n.id}')">Delete</button>
+    </div>
+    <div style="font-size:13px;line-height:1.5;color:var(--text);">${escapeNoteBody(n.body)}</div>
+  </div>`).join('');
+}
+
+async function pdNotesAdd() {
+  const input = document.getElementById('pd-notes-input');
+  const btn = document.getElementById('pd-notes-add-btn');
+  if (!input || !btn) return;
+  const body = input.value.trim();
+  if (!body) { toast('Note cannot be empty'); return; }
+  btn.disabled = true;
+  const prevLabel = btn.textContent;
+  btn.textContent = 'Adding…';
+  try {
+    const result = await addPlayerNote(pdState.playerId, body);
+    if (result) {
+      input.value = '';
+      renderPdNotesList(pdState.playerId);
+    }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = prevLabel;
+  }
+}
+
+async function pdNotesDelete(noteId) {
+  const ok = await deletePlayerNote(noteId);
+  if (ok) renderPdNotesList(pdState.playerId);
+}
+
+// ===== EDIT TAB =====
+function renderPdEdit(p) {
+  const container = document.getElementById('pd-content');
+  // Snapshot original values for the dirty check.
+  pdState.editOriginal = {
+    first: p.first || '',
+    last: p.last || '',
+    team: p.team || '',
+    grad: p.grad || '',
+    jersey: p.jersey || '',
+    waiver: !!p.waiver,
+    active: p.active !== false
+  };
+  const groupOptions = activeGroupCodes()
+    .map(code => `<option value="${code}"${code === pdState.editOriginal.team ? ' selected' : ''}>${code}</option>`)
+    .join('');
+  container.innerHTML = `<div style="padding:14px 0;">
+    <div class="form-group">
+      <label class="form-label">First name <span style="color:var(--orange);">*</span></label>
+      <input class="form-input" id="pd-edit-first" type="text" value="${pdState.editOriginal.first}" oninput="pdEditOnChange()">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Last name <span style="color:var(--orange);">*</span></label>
+      <input class="form-input" id="pd-edit-last" type="text" value="${pdState.editOriginal.last}" oninput="pdEditOnChange()">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Group <span style="color:var(--orange);">*</span></label>
+      <select class="form-select" id="pd-edit-team" onchange="pdEditOnChange()">
+        <option value="">— select —</option>
+        ${groupOptions}
+      </select>
+    </div>
+    <div style="display:flex;gap:12px;">
+      <div class="form-group" style="flex:1;">
+        <label class="form-label">Grad year <span style="color:var(--orange);">*</span></label>
+        <input class="form-input" id="pd-edit-grad" type="number" value="${pdState.editOriginal.grad}" oninput="pdEditOnChange()">
+      </div>
+      <div class="form-group" style="flex:1;">
+        <label class="form-label">Jersey</label>
+        <input class="form-input" id="pd-edit-jersey" type="text" maxlength="3" value="${pdState.editOriginal.jersey}" oninput="pdEditOnChange()">
+      </div>
+    </div>
+    <div class="form-group">
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+        <input type="checkbox" id="pd-edit-waiver" ${pdState.editOriginal.waiver ? 'checked' : ''} onchange="pdEditOnChange()">
+        Waiver signed
+      </label>
+    </div>
+    <div class="form-group">
+      <label style="display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px;cursor:pointer;">
+        <span>Active</span>
+        <span class="pd-toggle">
+          <input type="checkbox" id="pd-edit-active" ${pdState.editOriginal.active ? 'checked' : ''} onchange="pdEditOnChange()">
+          <span class="pd-toggle-track"><span class="pd-toggle-thumb"></span></span>
+        </span>
+      </label>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;padding-top:14px;border-top:1px solid var(--gray-border);">
+      <button class="btn" id="pd-edit-cancel" onclick="pdEditCancel()" disabled style="opacity:0.5;">Cancel</button>
+      <button class="btn btn-primary" id="pd-edit-save" onclick="pdEditSave()" disabled style="opacity:0.5;">Save</button>
+    </div>
+  </div>`;
+}
+
+function pdEditReadValues() {
+  return {
+    first: (document.getElementById('pd-edit-first').value || '').trim(),
+    last:  (document.getElementById('pd-edit-last').value || '').trim(),
+    team:  document.getElementById('pd-edit-team').value || '',
+    grad:  (document.getElementById('pd-edit-grad').value || '').trim(),
+    jersey:(document.getElementById('pd-edit-jersey').value || '').trim(),
+    waiver: document.getElementById('pd-edit-waiver').checked,
+    active: document.getElementById('pd-edit-active').checked
+  };
+}
+
+function pdEditIsDirty() {
+  const cur = pdEditReadValues();
+  const orig = pdState.editOriginal;
+  return cur.first !== orig.first
+      || cur.last !== orig.last
+      || cur.team !== orig.team
+      || String(cur.grad) !== String(orig.grad)
+      || cur.jersey !== orig.jersey
+      || cur.waiver !== orig.waiver
+      || cur.active !== orig.active;
+}
+
+function pdEditOnChange() {
+  const dirty = pdEditIsDirty();
+  const save = document.getElementById('pd-edit-save');
+  const cancel = document.getElementById('pd-edit-cancel');
+  if (save)   { save.disabled = !dirty;   save.style.opacity = dirty ? '1' : '0.5'; }
+  if (cancel) { cancel.disabled = !dirty; cancel.style.opacity = dirty ? '1' : '0.5'; }
+}
+
+function pdEditCancel() {
+  const p = state.players.find(x => x.id === pdState.playerId);
+  if (!p) return;
+  renderPdEdit(p);
+}
+
+async function pdEditSave() {
+  if (!sb) { toast('Auth not configured'); return; }
+  const vals = pdEditReadValues();
+  if (!vals.first) { toast('First name is required'); return; }
+  if (!vals.last)  { toast('Last name is required');  return; }
+  if (!vals.team)  { toast('Group is required');      return; }
+  if (!vals.grad)  { toast('Grad year is required');  return; }
+  const grad = parseInt(vals.grad, 10);
+  if (Number.isNaN(grad)) { toast('Grad year must be a number'); return; }
+
+  const save = document.getElementById('pd-edit-save');
+  const prevLabel = save.textContent;
+  save.disabled = true;
+  save.textContent = 'Saving…';
+
+  const { error } = await sb.from('players').update({
+    first: vals.first,
+    last: vals.last,
+    team: vals.team,
+    grad_year: grad,
+    jersey: vals.jersey || null,
+    waiver_signed: vals.waiver,
+    active: vals.active
+  }).eq('id', pdState.playerId);
+
+  if (error) {
+    console.error('pdEditSave error:', error);
+    toast('Save failed: ' + (error.message || 'unknown'));
+    save.disabled = false;
+    save.textContent = prevLabel;
+    return;
+  }
+
+  await loadPlayers();
+  const p = state.players.find(x => x.id === pdState.playerId);
+  if (p) {
+    document.getElementById('pd-name').textContent = p.first + ' ' + p.last;
+    document.getElementById('pd-avatar').textContent = ((p.first[0] || '?') + (p.last[0] || '')).toUpperCase();
+    document.getElementById('pd-avatar').className = 'av av-' + teamColor(p.team);
+    const metaParts = [];
+    if (p.team) metaParts.push(p.team);
+    if (p.grad) metaParts.push('Class of ' + p.grad);
+    if (p.jersey) metaParts.push('#' + p.jersey);
+    document.getElementById('pd-meta').textContent = metaParts.join(' · ') || '—';
+    renderPdEdit(p);
+  }
+  if (typeof renderRoster === 'function') renderRoster();
+  toast('Player updated');
 }
 
 // ===== SETTINGS =====
