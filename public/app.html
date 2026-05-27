@@ -541,12 +541,15 @@ tbody td { padding: 10px 14px; color: var(--text); vertical-align: middle; }
 
   /* Safe area for iPhone notch/home bar. Sidebar (bottom nav) needs to extend
      below its 64px content area to clear the home indicator; padding alone
-     can't grow a fixed-height box, so widen the height to include the inset. */
+     can't grow a fixed-height box, so widen the height to include the inset.
+     The 8px baseline keeps labels off the home indicator even when env()
+     returns 0 (desktop, browsers without viewport-fit=cover support, webviews).
+     Use 0px (not bare 0) as the fallback per the CSS env() spec. */
   .sidebar {
-    height: calc(64px + env(safe-area-inset-bottom, 0));
-    padding-bottom: env(safe-area-inset-bottom, 0);
+    height: calc(64px + 8px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
   }
-  .main { padding-bottom: calc(68px + env(safe-area-inset-bottom, 0)); }
+  .main { padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px)); }
 
   /* Dashboard panels stack better */
   #dash-checkin-status { padding: 10px 12px; }
