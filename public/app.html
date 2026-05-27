@@ -402,6 +402,7 @@ tbody td { padding: 10px 14px; color: var(--text); vertical-align: middle; }
     position: fixed;
     bottom: 0; left: 0; right: 0; top: auto;
     flex-direction: row;
+    align-items: center;     /* center .nav vertically across the full sidebar */
     padding: 0;
     z-index: 300;
     border-top: 1px solid rgba(255,255,255,0.12);
@@ -412,7 +413,7 @@ tbody td { padding: 10px 14px; color: var(--text); vertical-align: middle; }
 
   /* Nav: only the active role's nav has display:block (set by JS); others have display:none.
      We need to override 'block' with 'flex' for the row layout, but NOT override 'none'. */
-  .nav { display: flex; flex-direction: row; flex: 1; height: 100%; overflow: hidden; justify-content: space-around; }
+  .nav { display: flex; flex-direction: row; flex: 1; height: 64px; overflow: hidden; justify-content: space-around; align-items: center; }
   /* Force flex layout on the visible nav (anything except display:none gets flex) */
   .nav[style*="display: block"],
   .nav[style*="display:block"] { display: flex !important; }
@@ -470,9 +471,11 @@ tbody td { padding: 10px 14px; color: var(--text); vertical-align: middle; }
   .section-header > div { flex-wrap: wrap; gap: 6px; }
   .section-title { font-size: 16px; }
 
-  /* Tables → stack on mobile */
-  .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  table { min-width: 480px; font-size: 12px; }
+  /* Tables → stack on mobile. Override the base `width: 100%` so tables size
+     to their natural content. The wrapper has overflow-x: auto + max-width:
+     100% — when the table grows past the wrapper, the wrapper scrolls. */
+  .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; touch-action: pan-x pan-y; }
+  table { width: auto; min-width: 100%; font-size: 12px; }
   th, td { padding: 8px 10px; }
 
   /* Checkin grid */
@@ -539,11 +542,13 @@ tbody td { padding: 10px 14px; color: var(--text); vertical-align: middle; }
   /* RSVP bars */
   #attend-monthly-summary > div:first-child > div { min-width: 46px; padding: 6px 4px; }
 
-  /* Safe area for iPhone notch/home bar. The inset alone provides the right
-     amount of clearance below the labels — no extra baseline padding. */
+  /* Safe area for iPhone notch/home bar. The sidebar box grows by the inset
+     and `align-items: center` (above) keeps the .nav vertically centered in
+     the full visible band — labels look centered, not top-anchored.
+     Padding-bottom is NOT used here because it'd carve out a dead zone at
+     the bottom and force labels back into the top 65% visually. */
   .sidebar {
     height: calc(64px + env(safe-area-inset-bottom, 0px));
-    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
   .main { padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
 
@@ -568,19 +573,17 @@ tbody td { padding: 10px 14px; color: var(--text); vertical-align: middle; }
   .section-header .btn { font-size: 12px; padding: 7px 10px; }
 
   /* Tables - allow horizontal scroll */
-  .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  table { min-width: 620px; font-size: 12px; }
   table th, table td { padding: 8px 6px; }
 
-  /* Wide admin tables: bump min-width above their natural-content width so
-     the table overflows .table-wrap, which then scrolls horizontally. With
-     width:100% + min-width, the table is locked at the larger of the two —
-     so a min-width that exceeds the viewport guarantees a scrollable area. */
-  #page-roster table { min-width: 960px; }
-  #page-practices table { min-width: 820px; }
-  #page-tournaments table { min-width: 820px; }
-  #page-coach-management table { min-width: 720px; }
-  #page-group-management table { min-width: 640px; }
+  /* Wide admin tables: force min-width so the table grows past the wrapper
+     and the wrapper's overflow-x: auto triggers horizontal scroll. These
+     pair with the global `table { width: auto; min-width: 100% }` so the
+     larger of (natural content width, explicit min-width) wins. */
+  #page-roster table { min-width: 1100px; }
+  #page-practices table { min-width: 880px; }
+  #page-tournaments table { min-width: 880px; }
+  #page-coach-management table { min-width: 760px; }
+  #page-group-management table { min-width: 680px; }
 
   /* Roster jersey input stays small */
   #roster-table input[type="text"] { width: 40px !important; }
@@ -638,7 +641,6 @@ tbody td { padding: 10px 14px; color: var(--text); vertical-align: middle; }
 @media (max-width: 380px) {
   .login-box > div:first-child img { width: 150px !important; }
   .section-title { font-size: 16px !important; }
-  table { min-width: 540px; }
   .btn { font-size: 12px; }
 }
 /* ===== Role-based sidebar visibility ===== */
