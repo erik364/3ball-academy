@@ -539,17 +539,13 @@ tbody td { padding: 10px 14px; color: var(--text); vertical-align: middle; }
   /* RSVP bars */
   #attend-monthly-summary > div:first-child > div { min-width: 46px; padding: 6px 4px; }
 
-  /* Safe area for iPhone notch/home bar. Sidebar (bottom nav) needs to extend
-     below its 64px content area to clear the home indicator; padding alone
-     can't grow a fixed-height box, so widen the height to include the inset.
-     The 8px baseline keeps labels off the home indicator even when env()
-     returns 0 (desktop, browsers without viewport-fit=cover support, webviews).
-     Use 0px (not bare 0) as the fallback per the CSS env() spec. */
+  /* Safe area for iPhone notch/home bar. The inset alone provides the right
+     amount of clearance below the labels — no extra baseline padding. */
   .sidebar {
-    height: calc(64px + 8px + env(safe-area-inset-bottom, 0px));
-    padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    height: calc(64px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
-  .main { padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px)); }
+  .main { padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
 
   /* Dashboard panels stack better */
   #dash-checkin-status { padding: 10px 12px; }
@@ -575,6 +571,16 @@ tbody td { padding: 10px 14px; color: var(--text); vertical-align: middle; }
   .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   table { min-width: 620px; font-size: 12px; }
   table th, table td { padding: 8px 6px; }
+
+  /* Wide admin tables: bump min-width above their natural-content width so
+     the table overflows .table-wrap, which then scrolls horizontally. With
+     width:100% + min-width, the table is locked at the larger of the two —
+     so a min-width that exceeds the viewport guarantees a scrollable area. */
+  #page-roster table { min-width: 960px; }
+  #page-practices table { min-width: 820px; }
+  #page-tournaments table { min-width: 820px; }
+  #page-coach-management table { min-width: 720px; }
+  #page-group-management table { min-width: 640px; }
 
   /* Roster jersey input stays small */
   #roster-table input[type="text"] { width: 40px !important; }
