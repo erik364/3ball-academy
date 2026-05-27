@@ -18,19 +18,33 @@ export default function AppShell() {
     return () => window.removeEventListener('message', handleMessage);
   }, []);
 
+  // The wrapper is position:fixed so it provides a bounded viewport context
+  // for the iframe's content (scroll containment, correct anchoring of inner
+  // position:fixed elements like the bottom nav). The iframe itself stays in
+  // normal flow inside the wrapper — that's what keeps iOS Safari from
+  // hijacking horizontal touch gestures (a known issue with position:fixed
+  // iframes that broke table horizontal scroll until round 4).
   return (
-    <iframe
-      ref={iframeRef}
-      src="/app.html"
-      title="3Ball Academy"
+    <div
       style={{
-        display: 'block',
-        width: '100vw',
-        height: '100vh',
-        border: 'none',
-        margin: 0,
-        padding: 0,
+        position: 'fixed',
+        inset: 0,
+        overflow: 'hidden',
       }}
-    />
+    >
+      <iframe
+        ref={iframeRef}
+        src="/app.html"
+        title="3Ball Academy"
+        style={{
+          display: 'block',
+          width: '100%',
+          height: '100%',
+          border: 'none',
+          margin: 0,
+          padding: 0,
+        }}
+      />
+    </div>
   );
 }
