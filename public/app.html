@@ -5154,14 +5154,14 @@ function openPlayerDetail(playerId) {
 
 function getPlayerDetailTabsForRole() {
   const role = state.currentUser && state.currentUser.role;
-  if (role === 'admin') return ['overview', 'notes', 'attendance', 'rsvps', 'payments', 'edit'];
-  if (role === 'coach') return ['overview', 'notes', 'attendance', 'rsvps'];
-  return ['overview', 'attendance', 'rsvps', 'payments'];
+  if (role === 'admin') return ['overview', 'notes', 'attendance', 'payments', 'edit'];
+  if (role === 'coach') return ['overview', 'notes', 'attendance'];
+  return ['overview', 'attendance', 'payments'];
 }
 
 function renderPlayerDetailTabs() {
   const tabs = getPlayerDetailTabsForRole();
-  const labels = { overview: 'Overview', notes: 'Notes', attendance: 'Attendance', rsvps: 'RSVPs', payments: 'Payments', edit: 'Edit' };
+  const labels = { overview: 'Overview', notes: 'Notes', attendance: 'Attendance', payments: 'Payments', edit: 'Edit' };
   document.getElementById('pd-tabs').innerHTML = tabs.map(function(t) {
     const isActive = t === pdState.currentTab;
     return '<button onclick="setPlayerDetailTab(\'' + t + '\')" style="padding:11px 14px;border:none;background:transparent;cursor:pointer;font-family:inherit;font-size:13px;border-bottom:2px solid ' + (isActive ? 'var(--orange)' : 'transparent') + ';color:' + (isActive ? 'var(--text)' : 'var(--text-secondary)') + ';font-weight:' + (isActive ? '600' : '400') + ';white-space:nowrap;flex-shrink:0;">' + labels[t] + '</button>';
@@ -5186,9 +5186,7 @@ function renderPlayerDetailContent() {
   } else if (tab === 'notes') {
     renderPdNotes(p);
   } else if (tab === 'attendance') {
-    container.innerHTML = '<div style="text-align:center;color:var(--text-secondary);padding:30px 0;">Attendance history will appear here once practices are migrated (Step 8).</div>';
-  } else if (tab === 'rsvps') {
-    container.innerHTML = '<div style="text-align:center;color:var(--text-secondary);padding:30px 0;">RSVP history will appear here once practices are migrated (Step 7).</div>';
+    renderPdAttendance(p);
   } else if (tab === 'payments') {
     container.innerHTML = '<div style="padding:14px 0;">'
       + '<div style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;">Click a month to toggle paid / unpaid</div>'
@@ -5219,6 +5217,71 @@ function renderPdOverview(p, role) {
   return rows.map(function(r) {
     return '<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--gray-border);"><div style="font-size:13px;color:var(--text-secondary);">' + r.label + '</div><div style="font-size:13px;font-weight:500;text-align:right;">' + r.value + '</div></div>';
   }).join('');
+}
+
+// ===== ATTENDANCE TAB =====
+// Returns YYYY-MM-DD for "6 months ago" relative to local today.
+function sixMonthsAgoISO() {
+  const d = new Date();
+  d.setMonth(d.getMonth() - 6);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return y + '-' + m + '-' + day;
+}
+
+function renderPdAttendance(p) {
+  const container = document.getElementById('pd-content');
+  const todayStr = today();
+  const cutoff = sixMonthsAgoISO();
+
+  // Practice check-ins: practices the player is in `checkedIn[]` for, dated
+  // in (cutoff, today], newest first.
+  const checkins = (state.practices || [])
+    .filter(pr => (pr.checkedIn || []).includes(p.id))
+    .filter(pr => pr.date && pr.date <= todayStr && pr.date >= cutoff)
+    .sort((a, b) => b.date.localeCompare(a.date));
+
+  // Tournament RSVPs: this player's responses on tournaments whose endDate (or
+  // startDate as fallback) is in (cutoff, today]. We use endDate to keep
+  // multi-day tournaments visible up to their final day.
+  const rsvps = (state.tournamentRsvps || [])
+    .filter(r => r.playerId === p.id)
+    .map(r => {
+      const t = (state.tournaments || []).find(x => x.id === r.tournamentId);
+      if (!t) return null;
+      const eventDate = t.endDate || t.startDate;
+      return { rsvp: r, tournament: t, eventDate };
+    })
+    .filter(x => x && x.eventDate && x.eventDate <= todayStr && x.eventDate >= cutoff)
+    .sort((a, b) => b.eventDate.localeCompare(a.eventDate));
+
+  const yesCount = rsvps.filter(x => x.rsvp.answer === 'yes').length;
+  const noCount  = rsvps.filter(x => x.rsvp.answer === 'no').length;
+
+  const checkinsHtml = checkins.length
+    ? checkins.map(pr => `<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--gray-border);font-size:13px;">
+        <span>${fmtDate(pr.date)} · ${pr.location || (pr.groups || []).join(', ') || '—'}</span>
+      </div>`).join('')
+    : '<div style="text-align:center;color:var(--text-secondary);padding:18px 0;font-size:13px;">No practice check-ins.</div>';
+
+  const rsvpsHtml = rsvps.length
+    ? rsvps.map(x => {
+        const ans = x.rsvp.answer === 'yes' ? 'Yes' : x.rsvp.answer === 'no' ? 'No' : '—';
+        const ansColor = x.rsvp.answer === 'yes' ? 'var(--teal-dark)' : x.rsvp.answer === 'no' ? '#A32D2D' : 'var(--text-secondary)';
+        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--gray-border);font-size:13px;gap:8px;">
+          <span style="min-width:0;flex:1;">${fmtDate(x.eventDate)} · ${x.tournament.name}</span>
+          <span style="color:${ansColor};font-weight:600;flex-shrink:0;">${ans}</span>
+        </div>`;
+      }).join('')
+    : '<div style="text-align:center;color:var(--text-secondary);padding:18px 0;font-size:13px;">No tournament RSVPs.</div>';
+
+  container.innerHTML = `<div style="padding:8px 0;">
+    <div style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;padding:14px 0 6px;">Practice Check-ins (${checkins.length})</div>
+    ${checkinsHtml}
+    <div style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;padding:22px 0 6px;">Tournament RSVPs (${yesCount} yes, ${noCount} no)</div>
+    ${rsvpsHtml}
+  </div>`;
 }
 
 // ===== NOTES TAB =====
