@@ -5608,7 +5608,7 @@ function buildUpcomingEvents(ctx, opts) {
   return events.slice(0, limit);
 }
 
-function renderUpcomingFeed(containerId, events) {
+function renderUpcomingFeed(containerId, events, role) {
   const el = document.getElementById(containerId);
   if (!el) return;
   if (!events.length) {
@@ -5627,7 +5627,9 @@ function renderUpcomingFeed(containerId, events) {
       badge = '<span class="pill" style="background:#FFF3E0;color:#E65100;border:1px solid #FFCC80;flex-shrink:0;">Tournament</span>';
       primary = e.name;
       secondary = fmtDate(e.date) + (e.date !== e.endDate ? ' – ' + fmtDate(e.endDate) : '');
-      onclickAttr = `onclick="openTournamentDetail('${e.id}')"`;
+      onclickAttr = role === 'parent'
+        ? `onclick="showPage('player-tournaments', null)"`
+        : `onclick="openTournamentDetail('${e.id}')"`;
     } else {
       badge = '<span class="pill pill-orange" style="flex-shrink:0;">Game</span>';
       primary = (e.opponent ? 'vs ' + e.opponent : 'Game') + ' · ' + e.teamName;
@@ -5665,7 +5667,7 @@ function renderPlayerHome() {
     role: 'parent',
     playerIds: Array.from(state.myPlayerIds || [])
   });
-  renderUpcomingFeed('player-upcoming-feed', events);
+  renderUpcomingFeed('player-upcoming-feed', events, 'parent');
 }
 
 function renderPlayerSchedule() {
