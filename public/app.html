@@ -924,10 +924,7 @@ body:not([data-role="admin"]) .btn.admin-only {
     <div class="main">
       <div class="topbar">
         <div class="topbar-title" id="topbar-title">Dashboard</div>
-        <div style="display:flex;align-items:center;gap:8px;">
-          <div class="topbar-actions" id="topbar-actions"></div>
-          <button id="help-btn" type="button" onclick="openHelpCenter()" aria-label="Help" title="Help Center" style="width:32px;height:32px;border-radius:50%;border:1px solid var(--gray-border);background:var(--white);color:var(--text-secondary);font-size:15px;font-weight:600;cursor:pointer;line-height:1;display:flex;align-items:center;justify-content:center;flex-shrink:0;">?</button>
-        </div>
+        <div class="topbar-actions" id="topbar-actions"></div>
       </div>
       <div class="content">
 
@@ -1028,8 +1025,8 @@ body:not([data-role="admin"]) .btn.admin-only {
               <span>←</span> Back to tournaments
             </button>
             <div style="flex:1;"></div>
-            <button class="btn btn-sm admin-only" onclick="editTournamentFromDetail()">Edit Tournament</button>
-            <button class="btn btn-sm btn-danger admin-only" onclick="deleteTournamentFromDetail()">Delete Tournament</button>
+            <button class="btn btn-sm" onclick="editTournamentFromDetail()">Edit Tournament</button>
+            <button class="btn btn-sm btn-danger" onclick="deleteTournamentFromDetail()">Delete Tournament</button>
           </div>
 
           <div class="panel" style="margin-bottom:14px;">
@@ -1042,11 +1039,12 @@ body:not([data-role="admin"]) .btn.admin-only {
 
           <div id="td-rsvp-section"></div>
 
-          <div class="section-header admin-only">
-  <span class="section-title">Teams</span>
-  <button class="btn btn-primary btn-sm" onclick="openTeamModal(null)">+ Add Team</button>
-</div>
-<div id="td-teams-list" class="admin-only"></div>
+          <div class="section-header">
+            <span class="section-title">Teams</span>
+            <button class="btn btn-primary btn-sm" onclick="openTeamModal(null)">+ Add Team</button>
+          </div>
+          <div id="td-teams-list"></div>
+        </div>
 
         <!-- CHECK-IN -->
         <div class="page" id="page-checkin">
@@ -1472,21 +1470,6 @@ body:not([data-role="admin"]) .btn.admin-only {
     <div class="modal-footer">
       <button class="btn" onclick="closeModal('child-modal')">Cancel</button>
       <button class="btn btn-primary" onclick="saveChild()">Save Player</button>
-    </div>
-  </div>
-</div>
-
-<!-- ===== HELP CENTER MODAL ===== -->
-<div class="modal-overlay" id="help-modal">
-  <div class="modal" style="max-width:560px;">
-    <div class="modal-header">
-      <span class="modal-title">Help Center</span>
-      <button class="modal-close" onclick="closeModal('help-modal')">×</button>
-    </div>
-    <div class="modal-body">
-      <input class="form-input" id="help-search" type="search" placeholder="Search help..." oninput="helpFilter(this.value)" style="margin-bottom:14px;">
-      <div id="help-content"></div>
-      <div id="help-empty" style="display:none;text-align:center;color:var(--text-secondary);padding:24px 0;font-size:13px;">No results found. Try different keywords.</div>
     </div>
   </div>
 </div>
@@ -2007,98 +1990,6 @@ function showPage(id, navEl) {
 
 function openModal(id) { document.getElementById(id).classList.add('open'); }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
-
-// ===== HELP CENTER =====
-const HELP_ARTICLES = [
-  { section: 'Parents & Players', q: 'How do I sign up?', a: "Register with your email. You'll get a confirmation email, and once an admin approves your account you can add your player(s)." },
-  { section: 'Parents & Players', q: 'How do I add my child?', a: 'From My Account, use the Add Player section — enter their name, team/group, and grad year.' },
-  { section: 'Parents & Players', q: 'I have more than one child. How do I add them all?', a: "Add each child separately from My Account. They'll all appear under your account." },
-  { section: 'Parents & Players', q: 'Can both parents have access?', a: 'Yes. From My Account, share the household invite link. The other parent creates their own login and sees the same players.' },
-  { section: 'Parents & Players', q: 'How do I invite my co-parent or guardian?', a: "In My Account's Household section, share the invite link. Anyone you invite can see and manage your players." },
-  { section: 'Parents & Players', q: 'Will a new parent automatically see all our kids?', a: 'Yes — anyone in your household sees all linked players, including children added later.' },
-  { section: 'Parents & Players', q: 'Where do I see upcoming practices and tournaments?', a: 'The Home page shows your upcoming events; the Calendar tab shows everything in a monthly view.' },
-  { section: 'Parents & Players', q: 'How do I subscribe to the calendar on my phone?', a: 'On the Calendar tab, tap Subscribe. Choose Apple Calendar (iPhone/iPad/Mac) or Google Calendar (Android/web). Events stay in sync automatically.' },
-  { section: 'Parents & Players', q: "My calendar isn't updating.", a: 'Subscribed calendars refresh on their own — Apple usually every few hours, Google up to a day.' },
-  { section: 'Parents & Players', q: 'How do I RSVP for a tournament?', a: 'Open the Tourneys tab, tap the tournament, and select Yes or No for your player.' },
-  { section: 'Parents & Players', q: 'Can I change my RSVP?', a: 'Yes — tap Yes or No again to update it.' },
-  { section: 'Parents & Players', q: 'How do I update my contact info?', a: 'Go to My Account and edit your details.' },
-  { section: 'Parents & Players', q: "I didn't get my confirmation email.", a: 'Check your spam/junk folder. Emails come from noreply@3ballacademy.com — add it to your contacts so future messages arrive.' },
-  { section: 'Parents & Players', q: "I can't log in.", a: "Make sure you're using the email you registered with. If you've forgotten your password, use the password reset option on the login screen." },
-  { section: 'Parents & Players', q: "My account says it's pending.", a: "New accounts need admin approval before full access. If it's been a while, reach out to your program admin." },
-
-  { section: 'Coaches', q: "Where do I see my team's schedule?", a: 'Your Schedule page shows upcoming practices, tournaments, and games for your teams.' },
-  { section: 'Coaches', q: "How do I see who's coming to a tournament?", a: 'Open the tournament to see your roster and player RSVPs.' },
-  { section: 'Coaches', q: 'How do I check players in at practice?', a: 'Use the Check-in feature to mark players present at the active session.' },
-  { section: 'Coaches', q: 'Can I see attendance history?', a: "Open a player's detail and check the Attendance tab for their past check-ins and tournament RSVPs." },
-  { section: 'Coaches', q: "I can't log in.", a: 'Use the email your account was created with. Use password reset on the login screen if needed.' },
-  { section: 'Coaches', q: "I don't see my team.", a: 'Your teams are assigned by an admin. If a team is missing, contact your program admin.' },
-];
-
-function escapeHelpText(s) {
-  return String(s || '')
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-}
-
-function helpArticleHtml(a, idx) {
-  return `<div class="help-article" data-q="${escapeHelpText(a.q.toLowerCase())}" data-a="${escapeHelpText(a.a.toLowerCase())}" style="border-bottom:1px solid var(--gray-border);">
-    <button type="button" onclick="helpToggle(${idx})" id="help-q-${idx}" style="width:100%;text-align:left;background:transparent;border:none;padding:12px 0;font-family:inherit;font-size:13px;font-weight:600;color:var(--text);cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px;">
-      <span>${escapeHelpText(a.q)}</span>
-      <span id="help-chev-${idx}" style="color:var(--text-secondary);font-size:11px;flex-shrink:0;">▸</span>
-    </button>
-    <div id="help-a-${idx}" style="display:none;padding:0 0 14px;font-size:13px;line-height:1.55;color:var(--text-secondary);">${escapeHelpText(a.a)}</div>
-  </div>`;
-}
-
-function renderHelpCenter() {
-  const sections = ['Parents & Players', 'Coaches'];
-  const html = sections.map(name => {
-    const articles = HELP_ARTICLES
-      .map((a, i) => ({ a, i }))
-      .filter(x => x.a.section === name);
-    const rows = articles.map(x => helpArticleHtml(x.a, x.i)).join('');
-    return `<div class="help-section" data-section="${escapeHelpText(name)}">
-      <div class="help-section-header" style="font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.06em;padding:14px 0 6px;border-bottom:2px solid var(--orange);margin-bottom:4px;">${escapeHelpText(name)}</div>
-      <div class="help-section-body">${rows}</div>
-    </div>`;
-  }).join('');
-  document.getElementById('help-content').innerHTML = html;
-}
-
-function helpToggle(idx) {
-  const body = document.getElementById('help-a-' + idx);
-  const chev = document.getElementById('help-chev-' + idx);
-  if (!body || !chev) return;
-  const open = body.style.display !== 'none';
-  body.style.display = open ? 'none' : 'block';
-  chev.textContent = open ? '▸' : '▾';
-}
-
-function helpFilter(query) {
-  const q = (query || '').trim().toLowerCase();
-  const articles = document.querySelectorAll('#help-content .help-article');
-  let anyMatch = false;
-  articles.forEach(el => {
-    const match = !q || (el.dataset.q || '').includes(q) || (el.dataset.a || '').includes(q);
-    el.style.display = match ? '' : 'none';
-    if (match) anyMatch = true;
-  });
-  // Hide section blocks whose visible articles count = 0.
-  document.querySelectorAll('#help-content .help-section').forEach(sec => {
-    const visible = sec.querySelectorAll('.help-article:not([style*="display: none"])').length;
-    sec.style.display = visible > 0 ? '' : 'none';
-  });
-  document.getElementById('help-empty').style.display = anyMatch ? 'none' : 'block';
-  document.getElementById('help-content').style.display = anyMatch ? '' : 'none';
-}
-
-function openHelpCenter() {
-  renderHelpCenter();
-  document.getElementById('help-search').value = '';
-  document.getElementById('help-empty').style.display = 'none';
-  document.getElementById('help-content').style.display = '';
-  openModal('help-modal');
-}
 
 // ===== FORGOT PASSWORD =====
 function showForgotPassword() {
@@ -4245,107 +4136,61 @@ function renderTournamentDetail() {
     (t.startDate !== t.endDate ? ' – ' + fmtDate(t.endDate) : '');
   document.getElementById('td-notes').textContent = t.notes || '';
 
-// RSVP Responses section
+  // RSVP Responses section (one block per invited team)
   const rsvpSection = document.getElementById('td-rsvp-section');
-  const isParent = !!state.currentParent;
-
-  if (isParent) {
-    // PARENT VIEW: simple Yes/No buttons per their own kid(s)
-    const invitedTeams = Array.isArray(t.teams) ? t.teams : [];
-    const myKids = state.players.filter(p =>
-      state.myPlayerIds && state.myPlayerIds.has(p.id) &&
-      p.active !== false &&
-      invitedTeams.includes(p.team)
-    );
-
-    if (!myKids.length) {
-      rsvpSection.innerHTML = `
-        <div class="panel" style="margin-bottom:14px;">
-          <div style="padding:14px 16px;font-size:13px;color:var(--text-secondary);">
-            No players from your household are on a team invited to this tournament.
-          </div>
-        </div>`;
-    } else {
-      rsvpSection.innerHTML = myKids.map(kid => {
-        const r = state.tournamentRsvps.find(x => x.tournamentId === t.id && x.playerId === kid.id);
-        const ans = r ? r.answer : null;
-        const yesActive = ans === 'yes' ? 'btn-primary' : '';
-        const noActive  = ans === 'no'  ? 'btn-danger'  : '';
-        const status = ans === 'yes' ? 'You said yes' : ans === 'no' ? 'You said no' : 'Pending — please respond';
-        return `
-          <div class="panel" style="margin-bottom:10px;">
-            <div style="padding:14px 16px;">
-              <div style="font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:700;margin-bottom:4px;">
-                ${kid.first} ${kid.last} <span style="color:var(--text-secondary);font-size:13px;font-weight:400;">(${kid.team || '—'})</span>
-              </div>
-              <div style="font-size:13px;color:var(--text-secondary);margin-bottom:10px;">
-                Is ${kid.first} available for this tournament?
-              </div>
-              <div style="display:flex;gap:8px;">
-                <button class="btn btn-sm ${yesActive}" onclick="setTournRsvp('${t.id}','${kid.id}','yes')">✓ Yes</button>
-                <button class="btn btn-sm ${noActive}" onclick="setTournRsvp('${t.id}','${kid.id}','no')">✗ No</button>
-              </div>
-              <div style="font-size:12px;color:var(--text-secondary);margin-top:8px;">${status}</div>
-            </div>
-          </div>`;
-      }).join('');
-    }
+  const invitedTeams = Array.isArray(t.teams) ? t.teams : [];
+  if (!invitedTeams.length) {
+    rsvpSection.innerHTML = '';
   } else {
-    // ADMIN/COACH VIEW: existing team-by-team breakdown
-    const invitedTeams = Array.isArray(t.teams) ? t.teams : [];
-    if (!invitedTeams.length) {
-      rsvpSection.innerHTML = '';
-    } else {
-      const teamBlocks = invitedTeams.map(teamCode => {
-        const teamPlayers = state.players
-          .filter(pl => pl.team === teamCode && pl.active !== false)
-          .sort((a, b) => (a.last + a.first).localeCompare(b.last + b.first));
+    const teamBlocks = invitedTeams.map(teamCode => {
+      const teamPlayers = state.players
+        .filter(pl => pl.team === teamCode && pl.active !== false)
+        .sort((a, b) => (a.last + a.first).localeCompare(b.last + b.first));
 
-        const rows = teamPlayers.map(pl => {
-          const r = state.tournamentRsvps.find(x => x.tournamentId === t.id && x.playerId === pl.id);
-          const ans = r ? r.answer : null;
-          return { player: pl, answer: ans };
-        });
+      const rows = teamPlayers.map(pl => {
+        const r = state.tournamentRsvps.find(x => x.tournamentId === t.id && x.playerId === pl.id);
+        const ans = r ? r.answer : null;
+        return { player: pl, answer: ans };
+      });
 
-        const yesCount = rows.filter(r => r.answer === 'yes').length;
-        const noCount = rows.filter(r => r.answer === 'no').length;
-        const pendingCount = rows.filter(r => r.answer !== 'yes' && r.answer !== 'no').length;
+      const yesCount = rows.filter(r => r.answer === 'yes').length;
+      const noCount = rows.filter(r => r.answer === 'no').length;
+      const pendingCount = rows.filter(r => r.answer !== 'yes' && r.answer !== 'no').length;
 
-        const sortKey = r => r.answer === 'yes' ? 0 : r.answer === 'no' ? 2 : 1;
-        rows.sort((a, b) => sortKey(a) - sortKey(b)
-          || (a.player.last + a.player.first).localeCompare(b.player.last + b.player.first));
+      const sortKey = r => r.answer === 'yes' ? 0 : r.answer === 'no' ? 2 : 1;
+      rows.sort((a, b) => sortKey(a) - sortKey(b)
+        || (a.player.last + a.player.first).localeCompare(b.player.last + b.player.first));
 
-        const playerRowsHtml = rows.length
-          ? rows.map(r => {
-              const pillClass = r.answer === 'yes' ? 'pill-green' : r.answer === 'no' ? 'pill-red' : 'pill-gray';
-              const pillLabel = r.answer === 'yes' ? 'Yes' : r.answer === 'no' ? 'No' : 'Pending';
-              return `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--gray-border);">
-                <span style="font-size:13px;">${r.player.first} ${r.player.last}</span>
-                <span class="pill ${pillClass}">${pillLabel}</span>
-              </div>`;
-            }).join('')
-          : '<div style="font-size:12px;color:var(--text-secondary);font-style:italic;padding:6px 0;">No players on this team.</div>';
+      const playerRowsHtml = rows.length
+        ? rows.map(r => {
+            const pillClass = r.answer === 'yes' ? 'pill-green' : r.answer === 'no' ? 'pill-red' : 'pill-gray';
+            const pillLabel = r.answer === 'yes' ? 'Yes' : r.answer === 'no' ? 'No' : 'Pending';
+            return `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--gray-border);">
+              <span style="font-size:13px;">${r.player.first} ${r.player.last}</span>
+              <span class="pill ${pillClass}">${pillLabel}</span>
+            </div>`;
+          }).join('')
+        : '<div style="font-size:12px;color:var(--text-secondary);font-style:italic;padding:6px 0;">No players on this team.</div>';
 
-        return `<div class="panel" style="margin-bottom:10px;">
-          <div style="padding:12px 16px;">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-              <div style="font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:700;">${teamCode}</div>
-              <div style="font-size:12px;color:var(--text-secondary);">
-                ${yesCount} yes · ${noCount} no · ${pendingCount} pending
-              </div>
+      return `<div class="panel" style="margin-bottom:10px;">
+        <div style="padding:12px 16px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+            <div style="font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:700;">${teamCode}</div>
+            <div style="font-size:12px;color:var(--text-secondary);">
+              ${yesCount} yes · ${noCount} no · ${pendingCount} pending
             </div>
-            ${playerRowsHtml}
           </div>
-        </div>`;
-      }).join('');
-
-      rsvpSection.innerHTML = `
-        <div class="section-header">
-          <span class="section-title">RSVP Responses</span>
+          ${playerRowsHtml}
         </div>
-        ${teamBlocks}
-      `;
-    }
+      </div>`;
+    }).join('');
+
+    rsvpSection.innerHTML = `
+      <div class="section-header">
+        <span class="section-title">RSVP Responses</span>
+      </div>
+      ${teamBlocks}
+    `;
   }
 
   const teams = state.tournamentTeams.filter(tm => tm.tournamentId === t.id);
@@ -5309,14 +5154,14 @@ function openPlayerDetail(playerId) {
 
 function getPlayerDetailTabsForRole() {
   const role = state.currentUser && state.currentUser.role;
-  if (role === 'admin') return ['overview', 'notes', 'attendance', 'payments', 'edit'];
-  if (role === 'coach') return ['overview', 'notes', 'attendance'];
-  return ['overview', 'attendance', 'payments'];
+  if (role === 'admin') return ['overview', 'notes', 'attendance', 'rsvps', 'payments', 'edit'];
+  if (role === 'coach') return ['overview', 'notes', 'attendance', 'rsvps'];
+  return ['overview', 'attendance', 'rsvps', 'payments'];
 }
 
 function renderPlayerDetailTabs() {
   const tabs = getPlayerDetailTabsForRole();
-  const labels = { overview: 'Overview', notes: 'Notes', attendance: 'Attendance', payments: 'Payments', edit: 'Edit' };
+  const labels = { overview: 'Overview', notes: 'Notes', attendance: 'Attendance', rsvps: 'RSVPs', payments: 'Payments', edit: 'Edit' };
   document.getElementById('pd-tabs').innerHTML = tabs.map(function(t) {
     const isActive = t === pdState.currentTab;
     return '<button onclick="setPlayerDetailTab(\'' + t + '\')" style="padding:11px 14px;border:none;background:transparent;cursor:pointer;font-family:inherit;font-size:13px;border-bottom:2px solid ' + (isActive ? 'var(--orange)' : 'transparent') + ';color:' + (isActive ? 'var(--text)' : 'var(--text-secondary)') + ';font-weight:' + (isActive ? '600' : '400') + ';white-space:nowrap;flex-shrink:0;">' + labels[t] + '</button>';
@@ -5341,7 +5186,9 @@ function renderPlayerDetailContent() {
   } else if (tab === 'notes') {
     renderPdNotes(p);
   } else if (tab === 'attendance') {
-    renderPdAttendance(p);
+    container.innerHTML = '<div style="text-align:center;color:var(--text-secondary);padding:30px 0;">Attendance history will appear here once practices are migrated (Step 8).</div>';
+  } else if (tab === 'rsvps') {
+    container.innerHTML = '<div style="text-align:center;color:var(--text-secondary);padding:30px 0;">RSVP history will appear here once practices are migrated (Step 7).</div>';
   } else if (tab === 'payments') {
     container.innerHTML = '<div style="padding:14px 0;">'
       + '<div style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;">Click a month to toggle paid / unpaid</div>'
@@ -5372,71 +5219,6 @@ function renderPdOverview(p, role) {
   return rows.map(function(r) {
     return '<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--gray-border);"><div style="font-size:13px;color:var(--text-secondary);">' + r.label + '</div><div style="font-size:13px;font-weight:500;text-align:right;">' + r.value + '</div></div>';
   }).join('');
-}
-
-// ===== ATTENDANCE TAB =====
-// Returns YYYY-MM-DD for "6 months ago" relative to local today.
-function sixMonthsAgoISO() {
-  const d = new Date();
-  d.setMonth(d.getMonth() - 6);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return y + '-' + m + '-' + day;
-}
-
-function renderPdAttendance(p) {
-  const container = document.getElementById('pd-content');
-  const todayStr = today();
-  const cutoff = sixMonthsAgoISO();
-
-  // Practice check-ins: practices the player is in `checkedIn[]` for, dated
-  // in (cutoff, today], newest first.
-  const checkins = (state.practices || [])
-    .filter(pr => (pr.checkedIn || []).includes(p.id))
-    .filter(pr => pr.date && pr.date <= todayStr && pr.date >= cutoff)
-    .sort((a, b) => b.date.localeCompare(a.date));
-
-  // Tournament RSVPs: this player's responses on tournaments whose endDate (or
-  // startDate as fallback) is in (cutoff, today]. We use endDate to keep
-  // multi-day tournaments visible up to their final day.
-  const rsvps = (state.tournamentRsvps || [])
-    .filter(r => r.playerId === p.id)
-    .map(r => {
-      const t = (state.tournaments || []).find(x => x.id === r.tournamentId);
-      if (!t) return null;
-      const eventDate = t.endDate || t.startDate;
-      return { rsvp: r, tournament: t, eventDate };
-    })
-    .filter(x => x && x.eventDate && x.eventDate <= todayStr && x.eventDate >= cutoff)
-    .sort((a, b) => b.eventDate.localeCompare(a.eventDate));
-
-  const yesCount = rsvps.filter(x => x.rsvp.answer === 'yes').length;
-  const noCount  = rsvps.filter(x => x.rsvp.answer === 'no').length;
-
-  const checkinsHtml = checkins.length
-    ? checkins.map(pr => `<div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--gray-border);font-size:13px;">
-        <span>${fmtDate(pr.date)} · ${pr.location || (pr.groups || []).join(', ') || '—'}</span>
-      </div>`).join('')
-    : '<div style="text-align:center;color:var(--text-secondary);padding:18px 0;font-size:13px;">No practice check-ins.</div>';
-
-  const rsvpsHtml = rsvps.length
-    ? rsvps.map(x => {
-        const ans = x.rsvp.answer === 'yes' ? 'Yes' : x.rsvp.answer === 'no' ? 'No' : '—';
-        const ansColor = x.rsvp.answer === 'yes' ? 'var(--teal-dark)' : x.rsvp.answer === 'no' ? '#A32D2D' : 'var(--text-secondary)';
-        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--gray-border);font-size:13px;gap:8px;">
-          <span style="min-width:0;flex:1;">${fmtDate(x.eventDate)} · ${x.tournament.name}</span>
-          <span style="color:${ansColor};font-weight:600;flex-shrink:0;">${ans}</span>
-        </div>`;
-      }).join('')
-    : '<div style="text-align:center;color:var(--text-secondary);padding:18px 0;font-size:13px;">No tournament RSVPs.</div>';
-
-  container.innerHTML = `<div style="padding:8px 0;">
-    <div style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;padding:14px 0 6px;">Practice Check-ins (${checkins.length})</div>
-    ${checkinsHtml}
-    <div style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em;padding:22px 0 6px;">Tournament RSVPs (${yesCount} yes, ${noCount} no)</div>
-    ${rsvpsHtml}
-  </div>`;
 }
 
 // ===== NOTES TAB =====
@@ -6441,7 +6223,6 @@ async function setTournRsvp(tournId, playerId, answer, opts) {
     }
     await loadTournamentRsvps();
     renderPlayerTournaments();
-    if (state.viewingTournamentId) renderTournamentDetail();
     if (!opts.silent) toast(answer === 'yes' ? 'Marked as going 🏆' : 'Marked as not going.');
   } catch (e) {
     console.error('setTournRsvp error:', e);
