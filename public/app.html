@@ -837,6 +837,15 @@ body:not([data-role="admin"]) .btn.admin-only {
           <span class="form-check-label">I have read and agree to the 3Ball Academy Workout Waiver & Health Acknowledgment on behalf of all registered players.</span>
         </label>
       </div><!-- /step-4 -->
+
+      <!-- STEP 5: Cross-household match decisions (only shown if matches found) -->
+      <div id="reg-step-5" style="display:none;">
+        <div style="font-size:12px;font-weight:600;color:var(--green-dark);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:12px;">Almost done — review matches</div>
+        <div style="font-size:13px;line-height:1.55;color:var(--text);margin-bottom:14px;">
+          A few players you entered look like they may already be registered with another 3Ball family. Choose what should happen for each:
+        </div>
+        <div id="reg-match-cards"></div>
+      </div><!-- /step-5 -->
     </div><!-- /modal-body -->
     <div class="modal-footer">
       <button class="btn" id="reg-back-btn" style="display:none;" onclick="regBack()">Back</button>
@@ -2986,9 +2995,16 @@ function showRegStep(n) {
   document.getElementById('reg-step-2-players').style.display = n===2 ? 'block' : 'none';
   document.getElementById('reg-step-3').style.display = n===3 ? 'block' : 'none';
   document.getElementById('reg-step-4').style.display = n===4 ? 'block' : 'none';
-  document.getElementById('reg-back-btn').style.display = n>1 ? 'inline-block' : 'none';
-  const labels = {1:'Next: Add Players →', 2:'Next: Privacy & Terms →', 3:'Next: Waiver →', 4:'Complete Registration'};
-  document.getElementById('reg-next-btn').textContent = labels[n];
+  document.getElementById('reg-step-5').style.display = n===5 ? 'block' : 'none';
+  // No back from step 5: the auth user and household already exist by then.
+  document.getElementById('reg-back-btn').style.display = (n>1 && n<5) ? 'inline-block' : 'none';
+  const labels = {1:'Next: Add Players →', 2:'Next: Privacy & Terms →', 3:'Next: Waiver →', 4:'Complete Registration', 5:'Finish'};
+  const nextBtn = document.getElementById('reg-next-btn');
+  nextBtn.textContent = labels[n];
+  // Restore the default onclick for every step except 5; step 5 wires Finish
+  // explicitly after match detection. Without this, dismissing the modal
+  // mid-step-5 and reopening would leave the button bound to a stale handler.
+  if (n !== 5) nextBtn.onclick = function() { regNext(); };
   if (n===2) renderRegPlayerForms();
   if (n===4) {
     const waiverEl = document.getElementById('reg-waiver-display');
@@ -3152,116 +3168,299 @@ async function regNext() {
          return;
        }
 
-       if (players.length > 0) {
-        const playerRows = players.map(function(p) {
-          return {
+      // Cross-household match detection now that the user is authenticated.
+      // The RPC is granted to `authenticated` only; this runs AFTER signUp so
+      // the JWT is in place. Each kid that matches is staged for a request
+      // decision at step 5; the rest fall through to the normal insert path.
+      const matchedForReview = [];
+      const unmatchedRows = [];
+      if (players.length > 0) {
+        for (let i = 0; i < players.length; i++) {
+          const p = players[i];
+          const gradInt = p.grad ? parseInt(p.grad, 10) : null;
+          const rowDraft = {
             parent_id: newUserId,
             first: p.first.trim(),
             last: p.last.trim(),
-            team: null,                                 // parents don't pick teams
-            grad_year: p.grad ? parseInt(p.grad, 10) : null,
+            team: null,
+            grad_year: gradInt,
             waiver_signed: true,
             waiver_signed_at: new Date().toISOString()
           };
-        });
-        const { data: insertedData, error: playerError } = await sb.from('players')
-          .upsert(playerRows, { onConflict: 'parent_id,first,last,grad_year', ignoreDuplicates: true })
-          .select();
-        if (playerError) {
-          console.error('player insert error:', playerError);
-          alert('Account created but player setup failed: ' + playerError.message + '. Please contact support.');
-          return;
-        }
-        insertedPlayers = insertedData || [];
-
-        // 2. parent_players: mirror each linkage, stamp household_id.
-        if (insertedPlayers.length > 0) {
-          const ppRows = insertedPlayers.map(function(pl) {
-            return { parent_id: newUserId, player_id: pl.id, is_primary: true, household_id: householdId };
-          });
-          const { error: ppErr } = await sb.from('parent_players').insert(ppRows);
-          if (ppErr) {
-            console.error('parent_players insert error:', ppErr);
-            alert('Account created but household linkage failed: ' + ppErr.message + '. Please contact support.');
-            return;
+          try {
+            const { data: match, error: matchErr } = await sb.rpc('find_matching_player', {
+              p_first: rowDraft.first, p_last: rowDraft.last, p_grad_year: gradInt
+            });
+            if (matchErr) {
+              console.error('find_matching_player error (registration):', matchErr);
+              unmatchedRows.push(rowDraft);
+            } else if (match && match.length > 0) {
+              matchedForReview.push({
+                first: rowDraft.first,
+                last: rowDraft.last,
+                gradInt: gradInt,
+                householdId: match[0].household_id,
+                matchedPlayerId: match[0].matched_player_id || null,
+                rowDraft: rowDraft
+              });
+            } else {
+              unmatchedRows.push(rowDraft);
+            }
+          } catch (e) {
+            console.error('find_matching_player threw (registration):', e);
+            unmatchedRows.push(rowDraft);
           }
         }
       }
 
-      // 3. Single household-scoped invite for the registration email.
-      if (householdId) {
-        try {
-          const token = generateInviteToken();
-          const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-          const { error: invErr } = await sb.from('parent_invites').insert({
-            inviting_parent_id: newUserId,
-            household_id: householdId,
-            token: token,
-            expires_at: expires
-          });
-          if (invErr) {
-            console.error('household invite insert error:', invErr);
-          } else {
-            householdInviteUrl = inviteUrlFor(token);
-          }
-        } catch (e) {
-          console.error('household invite generation threw:', e);
-        }
+      // Stash context the step-5 Continue handler (and the no-match path
+      // below) need to finish registration.
+      regSubmitContext = {
+        newUserId: newUserId,
+        householdId: householdId,
+        email: email,
+        first: first,
+        last: last,
+        phone: phone,
+        players: players,
+        unmatchedRows: unmatchedRows,
+        matchedForReview: matchedForReview,
+        submitBtn: submitBtn
+      };
+
+      if (matchedForReview.length > 0) {
+        // Pause for user decisions. The "Finish" button at step 5 calls
+        // regFinishFromMatchReview() which routes back into finishRegistration.
+        renderRegMatchCards(matchedForReview);
+        regStep = 5;
+        showRegStep(5);
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Finish'; }
+        // Rewire the existing Next button to drive the step-5 finish path.
+        submitBtn.onclick = regFinishFromMatchReview;
+        return; // wait for user input; the rest happens in regFinishFromMatchReview
       }
 
-      closeModal('register-modal');
-      toast('Account created! Awaiting admin approval before you can sign in.');
-      document.getElementById('login-email').value = email;
-      document.getElementById('login-password').value = '';
-
-      try {
-        const { data: emailData, error: emailError } = await sb.functions.invoke('send-registration-confirmation', {
-          body: { email: email, first: first, household_invite_link: householdInviteUrl },
-        });
-        if (emailError) {
-          console.error('Registration confirmation email failed:', emailError);
-        } else {
-          console.log('Registration confirmation email sent:', emailData);
-        }
-      } catch (emailErr) {
-        console.error('Registration confirmation email threw:', emailErr);
-      }
-
-      try {
-        const playerPayload = (players || []).map(function(p) {
-          return {
-            first: p.first || '',
-            last: p.last || '',
-            grad_year: p.grad ? parseInt(p.grad, 10) : null
-          };
-        });
-        const { data: adminAlertData, error: adminAlertError } = await sb.functions.invoke('send-admin-registration-alert', {
-          body: {
-            parent: {
-              first: first,
-              last: last,
-              email: email,
-              phone: phone || ''
-            },
-            players: playerPayload
-          }
-        });
-        if (adminAlertError) {
-          console.error('Admin alert email failed:', adminAlertError);
-        } else {
-          console.log('Admin alert email sent:', adminAlertData);
-        }
-      } catch (adminAlertErr) {
-        console.error('Admin alert email threw:', adminAlertErr);
-      }
+      // No matches: complete the registration inline using the unmatched rows.
+      await finishRegistration({
+        decisions: [], // no matched kids to act on
+        skipResetSubmitting: false
+      });
+      return; // finishRegistration handles its own cleanup
     } catch (e) {
       console.error('Registration error:', e);
       alert('Something went wrong. Please try again or contact support.');
     } finally {
-      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Create Account'; }
       registrationSubmitting = false;
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        // Step 5's match-review path already swapped label + onclick to drive
+        // regFinishFromMatchReview. Don't clobber those when bailing out
+        // through the finally on the success-but-paused path.
+        if (regStep !== 5) {
+          submitBtn.textContent = 'Create Account';
+          submitBtn.onclick = function() { regNext(); };
+        }
+      }
     }
   }
+}
+
+// Holds the post-signUp registration state between the step-4 submit (which
+// runs auth.signUp + parents + households + match detection) and the step-5
+// Finish handler. Cleared after finishRegistration completes.
+let regSubmitContext = null;
+
+// Build the per-kid match decision UI for step 5.
+function renderRegMatchCards(matched) {
+  const host = document.getElementById('reg-match-cards');
+  if (!host) return;
+  host.innerHTML = matched.map(function(m, i) {
+    const grad = m.gradInt ? ' (class of ' + m.gradInt + ')' : '';
+    return `<div class="panel" style="padding:12px;margin-bottom:8px;">
+      <div style="font-weight:600;font-size:13px;">${chEscape(m.first)} ${chEscape(m.last)}${grad}</div>
+      <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;line-height:1.5;">
+        This name looks already registered with a 3Ball family.
+      </div>
+      <div style="margin-top:10px;display:flex;flex-direction:column;gap:6px;">
+        <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;">
+          <input type="radio" name="reg-match-${i}" value="request" checked style="margin-top:3px;">
+          <span style="font-size:13px;line-height:1.4;">Request to join their account<br>
+            <span style="color:var(--text-secondary);font-size:11px;">The family's primary contact will approve.</span>
+          </span>
+        </label>
+        <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;">
+          <input type="radio" name="reg-match-${i}" value="different" style="margin-top:3px;">
+          <span style="font-size:13px;line-height:1.4;">This is a different child — add as new</span>
+        </label>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// Step-5 Finish click: read each kid's radio choice, then drive the rest of
+// the registration tail.
+async function regFinishFromMatchReview() {
+  if (!regSubmitContext) return;
+  const matched = regSubmitContext.matchedForReview || [];
+  const decisions = matched.map(function(m, i) {
+    const chosen = document.querySelector('input[name="reg-match-' + i + '"]:checked');
+    const action = chosen ? chosen.value : 'request';
+    return Object.assign({}, m, { action: action });
+  });
+  // Disable the Finish button while we work.
+  const btn = document.getElementById('reg-next-btn');
+  const prev = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Finishing…'; }
+  try {
+    await finishRegistration({ decisions: decisions });
+  } catch (e) {
+    console.error('regFinishFromMatchReview threw:', e);
+    alert('Something went wrong finishing your registration. Some players may not have been added — please contact support.');
+    if (btn) { btn.disabled = false; btn.textContent = prev || 'Finish'; }
+  }
+}
+
+// Finalize registration once the player decisions are known. Used by both the
+// no-match path (decisions = []) and the step-5 Finish path. Owns:
+//   - inserting players (unmatched + "different" decisions)
+//   - parent_players fan-out (upsert, idempotent on retry)
+//   - household-scope invite generation
+//   - request_household_join for each "request" decision
+//   - send-join-request-notification for each "request" decision
+//   - send-registration-confirmation + send-admin-registration-alert
+async function finishRegistration(opts) {
+  if (!regSubmitContext) return;
+  const ctx = regSubmitContext;
+  const decisions = (opts && opts.decisions) || [];
+
+  // Final insert set: unmatched + decisions marked "different"
+  const insertRows = (ctx.unmatchedRows || []).slice();
+  decisions.forEach(function(d) {
+    if (d.action === 'different') insertRows.push(d.rowDraft);
+  });
+
+  let insertedPlayers = [];
+  if (insertRows.length > 0) {
+    const { data: insertedData, error: playerError } = await sb.from('players')
+      .upsert(insertRows, { onConflict: 'parent_id,first,last,grad_year', ignoreDuplicates: true })
+      .select();
+    if (playerError) {
+      console.error('player insert error (finish):', playerError);
+      alert('Account created but player setup failed: ' + playerError.message + '. Please contact support.');
+      return;
+    }
+    insertedPlayers = insertedData || [];
+    if (insertedPlayers.length > 0) {
+      const ppRows = insertedPlayers.map(function(pl) {
+        return { parent_id: ctx.newUserId, player_id: pl.id, is_primary: true, household_id: ctx.householdId };
+      });
+      const { error: ppErr } = await sb.from('parent_players').insert(ppRows);
+      if (ppErr) {
+        console.error('parent_players insert error (finish):', ppErr);
+        alert('Account created but household linkage failed: ' + ppErr.message + '. Please contact support.');
+        return;
+      }
+    }
+  }
+
+  // Household-scope invite for the registration confirmation email.
+  let householdInviteUrl = '';
+  if (ctx.householdId) {
+    try {
+      const token = generateInviteToken();
+      const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      const { error: invErr } = await sb.from('parent_invites').insert({
+        inviting_parent_id: ctx.newUserId,
+        household_id: ctx.householdId,
+        token: token,
+        expires_at: expires
+      });
+      if (invErr) console.error('household invite insert error:', invErr);
+      else householdInviteUrl = inviteUrlFor(token);
+    } catch (e) {
+      console.error('household invite generation threw:', e);
+    }
+  }
+
+  // Fire join requests for the "request" decisions.
+  const requestDecisions = decisions.filter(function(d) { return d.action === 'request'; });
+  for (const d of requestDecisions) {
+    try {
+      const { data: res, error: rErr } = await sb.rpc('request_household_join', {
+        p_household_id: d.householdId,
+        p_matched_player_id: d.matchedPlayerId
+      });
+      if (rErr) {
+        console.error('request_household_join error (finish):', rErr);
+        continue;
+      }
+      const row = (res && res.length > 0) ? res[0] : null;
+      if (row && row.success === false) {
+        console.warn('request_household_join refused (finish):', row.error_code, d);
+        continue;
+      }
+      try {
+        await sb.functions.invoke('send-join-request-notification', {
+          body: { household_id: d.householdId, matched_player_id: d.matchedPlayerId }
+        });
+      } catch (e) {
+        console.error('send-join-request-notification threw (finish):', e);
+      }
+    } catch (e) {
+      console.error('request_household_join threw (finish):', e);
+    }
+  }
+
+  closeModal('register-modal');
+  const requestCount = requestDecisions.length;
+  if (requestCount > 0) {
+    toast('Account created. ' + requestCount + ' join request' + (requestCount === 1 ? '' : 's') + ' sent. Awaiting admin approval before you can sign in.');
+  } else {
+    toast('Account created! Awaiting admin approval before you can sign in.');
+  }
+  document.getElementById('login-email').value = ctx.email;
+  document.getElementById('login-password').value = '';
+
+  // Reset the Finish-button rewiring back to default. The modal is closed but
+  // a future register-modal open shouldn't hit the stale onclick.
+  const btn = document.getElementById('reg-next-btn');
+  if (btn) {
+    btn.disabled = false;
+    btn.onclick = function() { regNext(); };
+    btn.textContent = 'Next →';
+  }
+
+  try {
+    const { data: emailData, error: emailError } = await sb.functions.invoke('send-registration-confirmation', {
+      body: { email: ctx.email, first: ctx.first, household_invite_link: householdInviteUrl },
+    });
+    if (emailError) console.error('Registration confirmation email failed:', emailError);
+    else console.log('Registration confirmation email sent:', emailData);
+  } catch (emailErr) {
+    console.error('Registration confirmation email threw:', emailErr);
+  }
+
+  try {
+    const playerPayload = (ctx.players || []).map(function(p) {
+      return {
+        first: p.first || '',
+        last: p.last || '',
+        grad_year: p.grad ? parseInt(p.grad, 10) : null
+      };
+    });
+    const { data: adminAlertData, error: adminAlertError } = await sb.functions.invoke('send-admin-registration-alert', {
+      body: {
+        parent: { first: ctx.first, last: ctx.last, email: ctx.email, phone: ctx.phone || '' },
+        players: playerPayload
+      }
+    });
+    if (adminAlertError) console.error('Admin alert email failed:', adminAlertError);
+    else console.log('Admin alert email sent:', adminAlertData);
+  } catch (adminAlertErr) {
+    console.error('Admin alert email threw:', adminAlertErr);
+  }
+
+  regSubmitContext = null;
 }
 
 // ===== DASHBOARD =====
