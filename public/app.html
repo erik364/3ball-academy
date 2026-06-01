@@ -3242,9 +3242,63 @@ async function regNext() {
         }
       }
 
+      // Generate the household-scope invite token + fire the registration
+      // confirmation email + fire the admin-registration alert HERE — not in
+      // finishRegistration — so they go out whether or not the parent finishes
+      // step 5. (If they hit step 5 and close the modal, the admin still gets
+      // alerted to approve the new account.)
+      let householdInviteUrl = '';
+      if (householdId) {
+        try {
+          const token = generateInviteToken();
+          const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+          const { error: invErr } = await sb.from('parent_invites').insert({
+            inviting_parent_id: newUserId,
+            household_id: householdId,
+            token: token,
+            expires_at: expires
+          });
+          if (invErr) console.error('household invite insert error:', invErr);
+          else householdInviteUrl = inviteUrlFor(token);
+        } catch (e) {
+          console.error('household invite generation threw:', e);
+        }
+      }
+
+      try {
+        const { data: emailData, error: emailError } = await sb.functions.invoke('send-registration-confirmation', {
+          body: { email: email, first: first, household_invite_link: householdInviteUrl },
+        });
+        if (emailError) console.error('Registration confirmation email failed:', emailError);
+        else console.log('Registration confirmation email sent:', emailData);
+      } catch (emailErr) {
+        console.error('Registration confirmation email threw:', emailErr);
+      }
+
+      try {
+        const playerPayload = (players || []).map(function(p) {
+          return {
+            first: p.first || '',
+            last: p.last || '',
+            grad_year: p.grad ? parseInt(p.grad, 10) : null
+          };
+        });
+        const { data: adminAlertData, error: adminAlertError } = await sb.functions.invoke('send-admin-registration-alert', {
+          body: {
+            parent: { first: first, last: last, email: email, phone: phone || '' },
+            players: playerPayload
+          }
+        });
+        if (adminAlertError) console.error('Admin alert email failed:', adminAlertError);
+        else console.log('Admin alert email sent:', adminAlertData);
+      } catch (adminAlertErr) {
+        console.error('Admin alert email threw:', adminAlertErr);
+      }
+
       // Stash context that the step-5 Finish handler (or the no-match path
       // below) needs to finish registration. unmatchedRows is intentionally
-      // NOT carried: those players are already inserted above.
+      // NOT carried: those players are already inserted above. Invite +
+      // confirmation + admin alert are likewise already fired above.
       regSubmitContext = {
         newUserId: newUserId,
         householdId: householdId,
@@ -3347,13 +3401,16 @@ async function regFinishFromMatchReview() {
 }
 
 // Finalize registration once the player decisions are known. Used by both the
-// no-match path (decisions = []) and the step-5 Finish path. Owns:
-//   - inserting players (unmatched + "different" decisions)
-//   - parent_players fan-out (upsert, idempotent on retry)
-//   - household-scope invite generation
+// no-match path (decisions = []) and the step-5 Finish path. Owns ONLY:
+//   - inserting "different" decisions (matched kids the user chose to add anyway)
+//   - parent_players fan-out for those
 //   - request_household_join for each "request" decision
 //   - send-join-request-notification for each "request" decision
-//   - send-registration-confirmation + send-admin-registration-alert
+//   - close modal + toast + reset Next button + cleanup
+//
+// The household-scope invite, send-registration-confirmation, and
+// send-admin-registration-alert are fired upstream in the step-4 submit, so
+// they go out even if the parent closes the modal mid-step-5.
 async function finishRegistration(opts) {
   if (!regSubmitContext) return;
   const ctx = regSubmitContext;
@@ -3386,25 +3443,6 @@ async function finishRegistration(opts) {
         alert('Account created but household linkage failed: ' + ppErr.message + '. Please contact support.');
         return;
       }
-    }
-  }
-
-  // Household-scope invite for the registration confirmation email.
-  let householdInviteUrl = '';
-  if (ctx.householdId) {
-    try {
-      const token = generateInviteToken();
-      const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-      const { error: invErr } = await sb.from('parent_invites').insert({
-        inviting_parent_id: ctx.newUserId,
-        household_id: ctx.householdId,
-        token: token,
-        expires_at: expires
-      });
-      if (invErr) console.error('household invite insert error:', invErr);
-      else householdInviteUrl = inviteUrlFor(token);
-    } catch (e) {
-      console.error('household invite generation threw:', e);
     }
   }
 
@@ -3454,36 +3492,6 @@ async function finishRegistration(opts) {
     btn.disabled = false;
     btn.onclick = function() { regNext(); };
     btn.textContent = 'Next →';
-  }
-
-  try {
-    const { data: emailData, error: emailError } = await sb.functions.invoke('send-registration-confirmation', {
-      body: { email: ctx.email, first: ctx.first, household_invite_link: householdInviteUrl },
-    });
-    if (emailError) console.error('Registration confirmation email failed:', emailError);
-    else console.log('Registration confirmation email sent:', emailData);
-  } catch (emailErr) {
-    console.error('Registration confirmation email threw:', emailErr);
-  }
-
-  try {
-    const playerPayload = (ctx.players || []).map(function(p) {
-      return {
-        first: p.first || '',
-        last: p.last || '',
-        grad_year: p.grad ? parseInt(p.grad, 10) : null
-      };
-    });
-    const { data: adminAlertData, error: adminAlertError } = await sb.functions.invoke('send-admin-registration-alert', {
-      body: {
-        parent: { first: ctx.first, last: ctx.last, email: ctx.email, phone: ctx.phone || '' },
-        players: playerPayload
-      }
-    });
-    if (adminAlertError) console.error('Admin alert email failed:', adminAlertError);
-    else console.log('Admin alert email sent:', adminAlertData);
-  } catch (adminAlertErr) {
-    console.error('Admin alert email threw:', adminAlertErr);
   }
 
   regSubmitContext = null;
