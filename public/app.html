@@ -3213,8 +3213,38 @@ async function regNext() {
         }
       }
 
-      // Stash context the step-5 Continue handler (and the no-match path
-      // below) need to finish registration.
+      // Insert the unmatched kids NOW (and parent_players fan-out for them),
+      // so closing the modal mid-step-5 still leaves a valid account with all
+      // non-conflicting players. Step 5 will only decide Request-vs-Different
+      // for the matched kids. Empty array → skip the upsert + fan-out entirely
+      // (don't call .upsert([]); the household + invite + requests still get
+      // created later, and an empty-household outcome is acceptable).
+      if (unmatchedRows.length > 0) {
+        const { data: insertedData, error: playerError } = await sb.from('players')
+          .upsert(unmatchedRows, { onConflict: 'parent_id,first,last,grad_year', ignoreDuplicates: true })
+          .select();
+        if (playerError) {
+          console.error('player insert error (step 4):', playerError);
+          alert('Account created but player setup failed: ' + playerError.message + '. Please contact support.');
+          return;
+        }
+        const insertedPlayers = insertedData || [];
+        if (insertedPlayers.length > 0) {
+          const ppRows = insertedPlayers.map(function(pl) {
+            return { parent_id: newUserId, player_id: pl.id, is_primary: true, household_id: householdId };
+          });
+          const { error: ppErr } = await sb.from('parent_players').insert(ppRows);
+          if (ppErr) {
+            console.error('parent_players insert error (step 4):', ppErr);
+            alert('Account created but household linkage failed: ' + ppErr.message + '. Please contact support.');
+            return;
+          }
+        }
+      }
+
+      // Stash context that the step-5 Finish handler (or the no-match path
+      // below) needs to finish registration. unmatchedRows is intentionally
+      // NOT carried: those players are already inserted above.
       regSubmitContext = {
         newUserId: newUserId,
         householdId: householdId,
@@ -3223,7 +3253,6 @@ async function regNext() {
         last: last,
         phone: phone,
         players: players,
-        unmatchedRows: unmatchedRows,
         matchedForReview: matchedForReview,
         submitBtn: submitBtn
       };
@@ -3240,11 +3269,8 @@ async function regNext() {
         return; // wait for user input; the rest happens in regFinishFromMatchReview
       }
 
-      // No matches: complete the registration inline using the unmatched rows.
-      await finishRegistration({
-        decisions: [], // no matched kids to act on
-        skipResetSubmitting: false
-      });
+      // No matches: complete the registration inline.
+      await finishRegistration({ decisions: [] });
       return; // finishRegistration handles its own cleanup
     } catch (e) {
       console.error('Registration error:', e);
@@ -3333,23 +3359,23 @@ async function finishRegistration(opts) {
   const ctx = regSubmitContext;
   const decisions = (opts && opts.decisions) || [];
 
-  // Final insert set: unmatched + decisions marked "different"
-  const insertRows = (ctx.unmatchedRows || []).slice();
-  decisions.forEach(function(d) {
-    if (d.action === 'different') insertRows.push(d.rowDraft);
-  });
+  // Unmatched kids were already inserted in the step-4 submit. finishRegistration
+  // only needs to handle "different" decisions (matched kids the user chose to
+  // add anyway as new players). Empty array → skip the upsert + fan-out.
+  const differentRows = decisions
+    .filter(function(d) { return d.action === 'different'; })
+    .map(function(d) { return d.rowDraft; });
 
-  let insertedPlayers = [];
-  if (insertRows.length > 0) {
+  if (differentRows.length > 0) {
     const { data: insertedData, error: playerError } = await sb.from('players')
-      .upsert(insertRows, { onConflict: 'parent_id,first,last,grad_year', ignoreDuplicates: true })
+      .upsert(differentRows, { onConflict: 'parent_id,first,last,grad_year', ignoreDuplicates: true })
       .select();
     if (playerError) {
       console.error('player insert error (finish):', playerError);
       alert('Account created but player setup failed: ' + playerError.message + '. Please contact support.');
       return;
     }
-    insertedPlayers = insertedData || [];
+    const insertedPlayers = insertedData || [];
     if (insertedPlayers.length > 0) {
       const ppRows = insertedPlayers.map(function(pl) {
         return { parent_id: ctx.newUserId, player_id: pl.id, is_primary: true, household_id: ctx.householdId };
