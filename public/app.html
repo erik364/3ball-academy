@@ -3041,6 +3041,10 @@ function collectRegPlayerForms() {
   }));
 }
 
+// Guards against repeat submission: button-disable can race a double-tap on
+// mobile because click handlers fire before the next paint applies disabled.
+// A JS-level flag returns early on the second call regardless of paint timing.
+let registrationSubmitting = false;
 async function regNext() {
   if (regStep === 1) {
     const first = document.getElementById('reg-parent-first').value.trim();
@@ -3075,6 +3079,8 @@ async function regNext() {
   } else {
     if (!document.getElementById('waiver-agree').checked) { alert('Please agree to the waiver to continue.'); return; }
     if (!sb) { alert('Auth not configured'); return; }
+    if (registrationSubmitting) return;
+    registrationSubmitting = true;
 
     const first = document.getElementById('reg-parent-first').value.trim();
     const last  = document.getElementById('reg-parent-last').value.trim();
@@ -3155,7 +3161,9 @@ async function regNext() {
             waiver_signed_at: new Date().toISOString()
           };
         });
-        const { data: insertedData, error: playerError } = await sb.from('players').insert(playerRows).select();
+        const { data: insertedData, error: playerError } = await sb.from('players')
+          .upsert(playerRows, { onConflict: 'parent_id,first,last,grad_year', ignoreDuplicates: true })
+          .select();
         if (playerError) {
           console.error('player insert error:', playerError);
           alert('Account created but player setup failed: ' + playerError.message + '. Please contact support.');
@@ -3248,6 +3256,7 @@ async function regNext() {
       alert('Something went wrong. Please try again or contact support.');
     } finally {
       if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Create Account'; }
+      registrationSubmitting = false;
     }
   }
 }
@@ -5413,15 +5422,22 @@ async function pdEditSave() {
   save.disabled = true;
   save.textContent = 'Saving…';
 
-  const { error } = await sb.from('players').update({
+  // Pair waiver_signed with waiver_signed_at: stamp when newly turning on,
+  // clear when turning off, omit both when unchanged so the existing
+  // timestamp is preserved.
+  const update = {
     first: vals.first,
     last: vals.last,
     team: vals.team,
     grad_year: grad,
     jersey: vals.jersey || null,
-    waiver_signed: vals.waiver,
     active: vals.active
-  }).eq('id', pdState.playerId);
+  };
+  if (vals.waiver !== pdState.editOriginal.waiver) {
+    update.waiver_signed = vals.waiver;
+    update.waiver_signed_at = vals.waiver ? new Date().toISOString() : null;
+  }
+  const { error } = await sb.from('players').update(update).eq('id', pdState.playerId);
 
   if (error) {
     console.error('pdEditSave error:', error);
@@ -6601,6 +6617,9 @@ function openEditChildModal(id) {
   if (editTeamGroup) editTeamGroup.style.display = '';
   openModal('child-modal');
 }
+// Same rationale as registrationSubmitting: double-tap can race the button
+// disable. Flag is checked before any work and reset in finally.
+let savingChild = false;
 async function saveChild() {
   const first = document.getElementById('ch-first').value.trim();
   const last  = document.getElementById('ch-last').value.trim();
@@ -6609,7 +6628,13 @@ async function saveChild() {
   const waiver = document.getElementById('ch-waiver').checked;
 
   if (!first || !last) { alert('First and last name are required.'); return; }
+  if (savingChild) return;
+  savingChild = true;
+  const saveBtn = document.querySelector('#child-modal .btn-primary');
+  const prevLabel = saveBtn ? saveBtn.textContent : '';
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = editingChildId ? 'Saving…' : 'Adding…'; }
 
+  try {
   if (editingChildId) {
     // EDIT: only grad/jersey are mutable. Team is admin/coach-managed.
     const row = {
@@ -6632,20 +6657,40 @@ async function saveChild() {
     // CREATE: requires valid 4-digit grad year and waiver to be checked
     if (!isValidGradYear(grad)) { alert('Please enter a 4-digit graduation year (e.g., 2028).'); return; }
     if (!waiver) { alert('Please agree to the waiver to add a player.'); return; }
+    const gradInt = grad ? parseInt(grad, 10) : null;
     const row = {
       first: first,
       last: last,
       team: null,                                 // parents don't pick teams
-      grad_year: grad || null,
+      grad_year: gradInt,
       jersey: jersey || null,
       waiver_signed: true,
+      waiver_signed_at: new Date().toISOString(),
       parent_id: state.currentParent.id,
       active: true
     };
     try {
-      const { data: insertedData, error } = await sb.from('players').insert(row).select().single();
+      // Upsert + ignoreDuplicates makes a re-fire on the unique key
+      // (parent_id, first, last, grad_year) a no-op. On dup-skip the returned
+      // rows array is empty, so we look up the existing player id to keep
+      // the parent_players fan-out below working in all cases.
+      const { data: insertedData, error } = await sb.from('players')
+        .upsert(row, { onConflict: 'parent_id,first,last,grad_year', ignoreDuplicates: true })
+        .select()
+        .maybeSingle();
       if (error) { console.error(error); alert('Save failed: ' + error.message); return; }
-      const newPlayerId = insertedData ? insertedData.id : null;
+      let newPlayerId = insertedData ? insertedData.id : null;
+      if (!newPlayerId) {
+        let lookup = sb.from('players')
+          .select('id')
+          .eq('parent_id', state.currentParent.id)
+          .eq('first', first)
+          .eq('last', last);
+        lookup = (gradInt === null) ? lookup.is('grad_year', null) : lookup.eq('grad_year', gradInt);
+        const { data: existing, error: lookupErr } = await lookup.maybeSingle();
+        if (lookupErr) { console.error('post-upsert lookup error:', lookupErr); }
+        else if (existing) { newPlayerId = existing.id; }
+      }
 
       // Fan out parent_players: primary linkage for self + non-primary for every
       // other current household member. Auto-grants Mom/Dad/Grandma access to
@@ -6682,6 +6727,10 @@ async function saveChild() {
       console.error('saveChild create error:', e);
       alert('Save failed: ' + e.message);
     }
+  }
+  } finally {
+    savingChild = false;
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = prevLabel || 'Save Player'; }
   }
 }
 
