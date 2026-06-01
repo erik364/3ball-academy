@@ -1316,6 +1316,13 @@ body:not([data-role="admin"]) .btn.admin-only {
             </div>
             <div id="pa-household-section" style="padding:14px 16px;"></div>
           </div>
+
+          <div class="panel" id="pa-join-requests-panel" style="margin-top:14px;display:none;">
+            <div class="panel-header">
+              <span class="panel-title">Pending join requests</span>
+            </div>
+            <div id="pa-join-requests-section" style="padding:14px 16px;"></div>
+          </div>
         </div>
 
         <!-- COACH SCHEDULE (non-admin coach view) -->
@@ -1886,6 +1893,7 @@ let state = {
   parentInvites: [],
   household: null,
   householdMembers: [],
+  householdJoinRequests: [],
   myPlayerIds: new Set(),
   tournamentGameRsvps: [],
   parents: [],
@@ -2745,7 +2753,7 @@ function doLogin() {
         };
         // Parent-scoped loaders run AFTER state.currentParent is set —
         // their guards depend on it.
-        await Promise.all([loadParentInvites(), loadHousehold(), loadMyPlayerLinks()]);
+        await Promise.all([loadParentInvites(), loadHousehold(), loadMyPlayerLinks(), loadHouseholdJoinRequests()]);
         enterApp('parent');
       }
     });
@@ -2963,7 +2971,7 @@ function submitNewPassword() {
           };
           // Parent-scoped loaders run AFTER state.currentParent is set —
           // their guards depend on it.
-          await Promise.all([loadParentInvites(), loadHousehold(), loadMyPlayerLinks()]);
+          await Promise.all([loadParentInvites(), loadHousehold(), loadMyPlayerLinks(), loadHouseholdJoinRequests()]);
           enterApp('parent');
         }
       });
@@ -6639,6 +6647,30 @@ async function loadHousehold() {
   }
 }
 
+// Pending cross-household join requests. RLS scopes the query to ONLY the
+// caller's household when they are the primary; for everyone else (including
+// non-primary household members) the query returns []. We don't role-gate
+// client-side — we let the policy do it.
+async function loadHouseholdJoinRequests() {
+  state.householdJoinRequests = [];
+  if (!sb) return;
+  try {
+    const { data, error } = await sb.from('household_join_requests')
+      .select('id, matched_player_id, created_at')
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false });
+    if (error) {
+      console.error('loadHouseholdJoinRequests error:', error);
+      return;
+    }
+    state.householdJoinRequests = (data || []).map(function(r) {
+      return { id: r.id, matchedPlayerId: r.matched_player_id, createdAt: r.created_at };
+    });
+  } catch (e) {
+    console.error('loadHouseholdJoinRequests threw:', e);
+  }
+}
+
 // Active invite for this household, regardless of which member created it.
 function householdActiveInvite() {
   if (!state.household) return null;
@@ -6747,6 +6779,7 @@ function renderParentAccount() {
   }).join('') : '<div class="empty"><div class="empty-icon">👥</div><div class="empty-text">No players added yet</div></div>';
 
   renderHouseholdSection();
+  renderJoinRequestsSection();
 }
 
 function renderHouseholdSection() {
@@ -6796,6 +6829,89 @@ function renderHouseholdSection() {
   }
 
   container.innerHTML = memberRows + inviteBlock;
+}
+
+// Pending join requests panel. Only the household primary sees this — RLS
+// returns [] for everyone else, AND we hide the panel for non-primaries even
+// if a future RLS change ever leaked rows. No identity about the requester is
+// shown: only the kid's first name (which the primary already knows from
+// their own household).
+function renderJoinRequestsSection() {
+  const panel     = document.getElementById('pa-join-requests-panel');
+  const container = document.getElementById('pa-join-requests-section');
+  if (!panel || !container) return;
+  const isPrimary = !!(state.household
+    && state.currentParent
+    && state.household.primaryParentId === state.currentParent.id);
+  const requests = state.householdJoinRequests || [];
+  if (!isPrimary || requests.length === 0) {
+    panel.style.display = 'none';
+    container.innerHTML = '';
+    return;
+  }
+  panel.style.display = '';
+  container.innerHTML = requests.map(function(r) {
+    let kidLabel = 'your household';
+    if (r.matchedPlayerId) {
+      const kid = state.players.find(function(p) { return p.id === r.matchedPlayerId; });
+      if (kid) kidLabel = (kid.first || '') + "'s account";
+    }
+    const submitted = r.createdAt
+      ? new Date(r.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+      : '';
+    return `<div style="padding:10px 0;border-bottom:1px solid var(--gray-border);">
+      <div style="font-size:13px;line-height:1.5;color:var(--text);">
+        Someone is requesting to join your household to access ${chEscape(kidLabel)}.
+      </div>
+      ${submitted ? `<div style="font-size:11px;color:var(--text-secondary);margin-top:4px;">Submitted ${chEscape(submitted)}</div>` : ''}
+      <div style="display:flex;gap:6px;margin-top:8px;">
+        <button class="btn btn-sm btn-primary" data-req-id="${r.id}" onclick="resolveJoinRequest('${r.id}', true, this)">Approve</button>
+        <button class="btn btn-sm" data-req-id="${r.id}" onclick="resolveJoinRequest('${r.id}', false, this)">Deny</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function resolveJoinRequest(requestId, approve, btnEl) {
+  if (!sb) return;
+  // Disable both buttons on this request's row while in-flight.
+  const row = btnEl ? btnEl.closest('div').parentElement : null;
+  const buttons = row ? row.querySelectorAll('button[data-req-id="' + requestId + '"]') : [];
+  buttons.forEach(function(b) { b.disabled = true; });
+  try {
+    const { data: res, error } = await sb.rpc('resolve_household_join', {
+      p_request_id: requestId,
+      p_approve: approve
+    });
+    if (error) {
+      console.error('resolve_household_join error:', error);
+      alert('Could not ' + (approve ? 'approve' : 'deny') + ' the request: ' + (error.message || 'unknown error'));
+      buttons.forEach(function(b) { b.disabled = false; });
+      return;
+    }
+    const result = (res && res.length > 0) ? res[0] : null;
+    if (result && result.success === false) {
+      const code = result.error_code || 'unknown';
+      const msg = code === 'not_found' ? 'That request no longer exists.'
+        : code === 'already_resolved' ? 'That request has already been handled.'
+        : code === 'not_authorized' ? 'You are not authorized to resolve this request.'
+        : 'Could not resolve the request (' + code + ').';
+      alert(msg);
+      buttons.forEach(function(b) { b.disabled = false; });
+      return;
+    }
+    // Reload everything that an approval would have touched: household members,
+    // pending requests, my-player-ids (gains the new household-mate's view of
+    // players is unchanged for us as the primary, but the request list shrinks
+    // and household members may grow).
+    await Promise.all([loadHouseholdJoinRequests(), loadHousehold(), loadPlayers(), loadMyPlayerLinks()]);
+    renderParentAccount();
+    toast(approve ? 'Approved.' : 'Denied.');
+  } catch (e) {
+    console.error('resolveJoinRequest threw:', e);
+    alert('Could not resolve the request: ' + (e.message || 'unknown error'));
+    buttons.forEach(function(b) { b.disabled = false; });
+  }
 }
 
 function saveParentInfo() {
