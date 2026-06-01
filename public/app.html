@@ -1447,27 +1447,30 @@ body:not([data-role="admin"]) .btn.admin-only {
       <span class="modal-title" id="child-modal-title">Add Player</span>
       <button class="modal-close" onclick="closeModal('child-modal')">×</button>
     </div>
-    <div class="modal-body">
-      <div class="form-row">
-        <div class="form-group"><label class="form-label">First Name</label><input class="form-input" id="ch-first" placeholder="First"></div>
-        <div class="form-group"><label class="form-label">Last Name</label><input class="form-input" id="ch-last" placeholder="Last"></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">Group</label>
-          <select class="form-select" id="ch-team">
-            <option value="">Select...</option>
-          </select>
+    <div class="modal-body" id="ch-modal-body">
+      <div id="ch-form-view">
+        <div class="form-row">
+          <div class="form-group"><label class="form-label">First Name</label><input class="form-input" id="ch-first" placeholder="First"></div>
+          <div class="form-group"><label class="form-label">Last Name</label><input class="form-input" id="ch-last" placeholder="Last"></div>
         </div>
-        <div class="form-group"><label class="form-label">Grad Year</label><input class="form-input" id="ch-grad" placeholder="2028"></div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Group</label>
+            <select class="form-select" id="ch-team">
+              <option value="">Select...</option>
+            </select>
+          </div>
+          <div class="form-group"><label class="form-label">Grad Year</label><input class="form-input" id="ch-grad" placeholder="2028"></div>
+        </div>
+        <div class="form-group"><label class="form-label">Jersey #</label><input class="form-input" id="ch-jersey" placeholder="—" maxlength="3"></div>
+        <label class="form-check" style="margin-top:4px;">
+          <input type="checkbox" id="ch-waiver" style="accent-color:var(--green-dark);">
+          <span class="form-check-label">Waiver agreed</span>
+        </label>
       </div>
-      <div class="form-group"><label class="form-label">Jersey #</label><input class="form-input" id="ch-jersey" placeholder="—" maxlength="3"></div>
-      <label class="form-check" style="margin-top:4px;">
-        <input type="checkbox" id="ch-waiver" style="accent-color:var(--green-dark);">
-        <span class="form-check-label">Waiver agreed</span>
-      </label>
+      <div id="ch-match-view" style="display:none;"></div>
     </div>
-    <div class="modal-footer">
+    <div class="modal-footer" id="ch-modal-footer">
       <button class="btn" onclick="closeModal('child-modal')">Cancel</button>
       <button class="btn btn-primary" onclick="saveChild()">Save Player</button>
     </div>
@@ -6578,6 +6581,7 @@ function saveParentInfo() {
 let editingChildId = null;
 function openAddChildModal() {
   editingChildId = null;
+  restoreChildModalForm();
   document.getElementById('child-modal-title').textContent = 'Add Player';
   document.getElementById('ch-first').value = '';
   document.getElementById('ch-last').value  = '';
@@ -6599,6 +6603,7 @@ function openEditChildModal(id) {
   editingChildId = id;
   const p = state.players.find(x=>x.id===id);
   if (!p) return;
+  restoreChildModalForm();
   document.getElementById('child-modal-title').textContent = 'Edit Player';
   document.getElementById('ch-first').value = p.first || '';
   document.getElementById('ch-last').value  = p.last  || '';
@@ -6669,67 +6674,217 @@ async function saveChild() {
       parent_id: state.currentParent.id,
       active: true
     };
+
+    // Cross-household match check BEFORE inserting. The SECURITY DEFINER RPC
+    // sees players the caller's RLS hides; if another household has a player
+    // with the same first/last/grad_year, we offer a "join their account"
+    // path instead of creating a duplicate.
     try {
-      // Upsert + ignoreDuplicates makes a re-fire on the unique key
-      // (parent_id, first, last, grad_year) a no-op. On dup-skip the returned
-      // rows array is empty, so we look up the existing player id to keep
-      // the parent_players fan-out below working in all cases.
-      const { data: insertedData, error } = await sb.from('players')
-        .upsert(row, { onConflict: 'parent_id,first,last,grad_year', ignoreDuplicates: true })
-        .select()
-        .maybeSingle();
-      if (error) { console.error(error); alert('Save failed: ' + error.message); return; }
-      let newPlayerId = insertedData ? insertedData.id : null;
-      if (!newPlayerId) {
-        let lookup = sb.from('players')
-          .select('id')
-          .eq('parent_id', state.currentParent.id)
-          .eq('first', first)
-          .eq('last', last);
-        lookup = (gradInt === null) ? lookup.is('grad_year', null) : lookup.eq('grad_year', gradInt);
-        const { data: existing, error: lookupErr } = await lookup.maybeSingle();
-        if (lookupErr) { console.error('post-upsert lookup error:', lookupErr); }
-        else if (existing) { newPlayerId = existing.id; }
+      const { data: match, error: matchErr } = await sb.rpc('find_matching_player', {
+        p_first: first, p_last: last, p_grad_year: gradInt
+      });
+      if (matchErr) {
+        console.error('find_matching_player error:', matchErr);
+        // Detection failed; degrade gracefully — proceed with normal create.
+      } else if (match && match.length > 0) {
+        showChildMatchPrompt({
+          first: first,
+          last: last,
+          gradInt: gradInt,
+          householdId: match[0].household_id,
+          matchedPlayerId: match[0].matched_player_id || null,
+          row: row
+        });
+        return; // user must choose Request / Different in the prompt
       }
-
-      // Fan out parent_players: primary linkage for self + non-primary for every
-      // other current household member. Auto-grants Mom/Dad/Grandma access to
-      // newly-added kids without further action. Surface failures — silently
-      // dropping these was the root cause of the Phase 4 household bug.
-      if (newPlayerId) {
-        if (!state.household) {
-          console.error('saveChild: no household in state when adding player');
-          alert('Player added, but could not link it to your household — try reloading. If the issue persists, contact support.');
-        } else {
-          const householdId = state.household.id;
-          const memberIds = (state.householdMembers || []).map(m => m.id);
-          const otherIds = memberIds.filter(id => id !== state.currentParent.id);
-          const ppRows = [];
-          ppRows.push({ parent_id: state.currentParent.id, player_id: newPlayerId, is_primary: true, household_id: householdId });
-          otherIds.forEach(otherId => {
-            ppRows.push({ parent_id: otherId, player_id: newPlayerId, is_primary: false, household_id: householdId });
-          });
-          const { error: ppErr } = await sb.from('parent_players').insert(ppRows);
-          if (ppErr) {
-            console.error('parent_players fan-out error:', ppErr);
-            alert('Player added, but linkage to household members failed: ' + ppErr.message + '. Refresh and try again, or contact support.');
-          }
-        }
-      }
-
-      await loadPlayers();
-      await loadHousehold();
-      closeModal('child-modal');
-      renderParentAccount();
-      renderSwitcherPills();
-      toast('Player added!');
     } catch (e) {
-      console.error('saveChild create error:', e);
-      alert('Save failed: ' + e.message);
+      console.error('find_matching_player threw:', e);
+      // Same degrade — fall through to create.
     }
+
+    await createChildAfterCheck(row, first, last, gradInt);
   }
   } finally {
     savingChild = false;
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = prevLabel || 'Save Player'; }
+  }
+}
+
+// Continuation of saveChild's CREATE branch after the cross-household match
+// check. Runs the same insert + fan-out + cleanup that lived inline before.
+async function createChildAfterCheck(row, first, last, gradInt) {
+  try {
+    const { data: insertedData, error } = await sb.from('players')
+      .upsert(row, { onConflict: 'parent_id,first,last,grad_year', ignoreDuplicates: true })
+      .select()
+      .maybeSingle();
+    if (error) { console.error(error); alert('Save failed: ' + error.message); return; }
+    let newPlayerId = insertedData ? insertedData.id : null;
+    if (!newPlayerId) {
+      let lookup = sb.from('players')
+        .select('id')
+        .eq('parent_id', state.currentParent.id)
+        .eq('first', first)
+        .eq('last', last);
+      lookup = (gradInt === null) ? lookup.is('grad_year', null) : lookup.eq('grad_year', gradInt);
+      const { data: existing, error: lookupErr } = await lookup.maybeSingle();
+      if (lookupErr) { console.error('post-upsert lookup error:', lookupErr); }
+      else if (existing) { newPlayerId = existing.id; }
+    }
+
+    if (newPlayerId) {
+      if (!state.household) {
+        console.error('saveChild: no household in state when adding player');
+        alert('Player added, but could not link it to your household — try reloading. If the issue persists, contact support.');
+      } else {
+        const householdId = state.household.id;
+        const memberIds = (state.householdMembers || []).map(m => m.id);
+        const otherIds = memberIds.filter(id => id !== state.currentParent.id);
+        const ppRows = [];
+        ppRows.push({ parent_id: state.currentParent.id, player_id: newPlayerId, is_primary: true, household_id: householdId });
+        otherIds.forEach(otherId => {
+          ppRows.push({ parent_id: otherId, player_id: newPlayerId, is_primary: false, household_id: householdId });
+        });
+        const { error: ppErr } = await sb.from('parent_players').insert(ppRows);
+        if (ppErr) {
+          console.error('parent_players fan-out error:', ppErr);
+          alert('Player added, but linkage to household members failed: ' + ppErr.message + '. Refresh and try again, or contact support.');
+        }
+      }
+    }
+
+    await loadPlayers();
+    await loadHousehold();
+    closeModal('child-modal');
+    renderParentAccount();
+    renderSwitcherPills();
+    toast('Player added!');
+  } catch (e) {
+    console.error('createChildAfterCheck error:', e);
+    alert('Save failed: ' + e.message);
+  }
+}
+
+// ===== CROSS-HOUSEHOLD MATCH PROMPT (saveChild) =====
+// Captured context for the two action buttons in the match prompt.
+let chMatchContext = null;
+
+function chEscape(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function restoreChildModalForm() {
+  const formView  = document.getElementById('ch-form-view');
+  const matchView = document.getElementById('ch-match-view');
+  const footer    = document.getElementById('ch-modal-footer');
+  if (formView)  formView.style.display  = '';
+  if (matchView) { matchView.style.display = 'none'; matchView.innerHTML = ''; }
+  if (footer) footer.innerHTML =
+    '<button class="btn" onclick="closeModal(\'child-modal\')">Cancel</button>' +
+    '<button class="btn btn-primary" onclick="saveChild()">Save Player</button>';
+  chMatchContext = null;
+}
+
+function showChildMatchPrompt(ctx) {
+  chMatchContext = ctx;
+  const formView  = document.getElementById('ch-form-view');
+  const matchView = document.getElementById('ch-match-view');
+  const footer    = document.getElementById('ch-modal-footer');
+  if (formView)  formView.style.display  = 'none';
+  if (matchView) {
+    matchView.style.display = '';
+    matchView.innerHTML = `
+      <div style="padding:6px 0 4px;font-size:14px;line-height:1.5;color:var(--text);">
+        A player named <strong>${chEscape(ctx.first)} ${chEscape(ctx.last)}</strong>
+        ${ctx.gradInt ? '(class of ' + ctx.gradInt + ') ' : ''}looks already registered with a 3Ball family.
+      </div>
+      <div style="font-size:12px;color:var(--text-secondary);margin-top:8px;line-height:1.5;">
+        If this is your child, request to join their account — the family's primary contact will approve.
+        If it's a different child with the same name, you can continue and add them as your own.
+      </div>`;
+  }
+  if (footer) footer.innerHTML =
+    '<button class="btn" onclick="confirmDifferentChild()">This is a different child</button>' +
+    '<button class="btn btn-primary" onclick="confirmJoinRequest()">Request to join their account</button>';
+}
+
+function showChildRequestSent() {
+  const matchView = document.getElementById('ch-match-view');
+  const footer    = document.getElementById('ch-modal-footer');
+  if (matchView) {
+    matchView.innerHTML = `
+      <div style="padding:6px 0 4px;font-size:14px;line-height:1.5;color:var(--text);">
+        ✓ Request sent — the family's primary contact will approve it.
+      </div>
+      <div style="font-size:12px;color:var(--text-secondary);margin-top:8px;line-height:1.5;">
+        Once approved, this player will appear in your account.
+      </div>`;
+  }
+  if (footer) footer.innerHTML =
+    '<button class="btn btn-primary" onclick="closeModal(\'child-modal\')">Done</button>';
+}
+
+async function confirmJoinRequest() {
+  if (!chMatchContext) return;
+  const ctx = chMatchContext;
+  const footer = document.getElementById('ch-modal-footer');
+  if (footer) footer.querySelectorAll('button').forEach(b => b.disabled = true);
+
+  try {
+    const { data: res, error } = await sb.rpc('request_household_join', {
+      p_household_id: ctx.householdId,
+      p_matched_player_id: ctx.matchedPlayerId
+    });
+    if (error) {
+      console.error('request_household_join error:', error);
+      alert('Could not send request: ' + (error.message || 'unknown error'));
+      if (footer) footer.querySelectorAll('button').forEach(b => b.disabled = false);
+      return;
+    }
+    const row = (res && res.length > 0) ? res[0] : null;
+    if (row && row.success === false) {
+      const code = row.error_code || 'unknown';
+      const msg = code === 'already_member' ? "You're already part of this household."
+        : code === 'household_missing' ? 'That household no longer exists.'
+        : code === 'not_authenticated' ? 'Please sign in again and retry.'
+        : 'Could not send request (' + code + ').';
+      alert(msg);
+      if (footer) footer.querySelectorAll('button').forEach(b => b.disabled = false);
+      return;
+    }
+
+    // Fire-and-forget email notification to the household primary. Failure
+    // here doesn't block the request — the in-app pending list still works.
+    try {
+      await sb.functions.invoke('send-join-request-notification', {
+        body: { household_id: ctx.householdId, matched_player_id: ctx.matchedPlayerId }
+      });
+    } catch (e) {
+      console.error('send-join-request-notification threw:', e);
+    }
+
+    showChildRequestSent();
+  } catch (e) {
+    console.error('confirmJoinRequest threw:', e);
+    alert('Could not send request: ' + (e.message || 'unknown error'));
+    if (footer) footer.querySelectorAll('button').forEach(b => b.disabled = false);
+  }
+}
+
+async function confirmDifferentChild() {
+  if (!chMatchContext) return;
+  const ctx = chMatchContext;
+  // Restore the form chrome for sanity, then run the normal insert path.
+  restoreChildModalForm();
+  // Re-acquire the save button for state during the insert.
+  const saveBtn = document.querySelector('#child-modal .btn-primary');
+  const prevLabel = saveBtn ? saveBtn.textContent : '';
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Adding…'; }
+  try {
+    await createChildAfterCheck(ctx.row, ctx.first, ctx.last, ctx.gradInt);
+  } finally {
     if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = prevLabel || 'Save Player'; }
   }
 }
