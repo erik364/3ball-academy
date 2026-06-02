@@ -3156,8 +3156,6 @@ async function regNext() {
       // Insert household → players → parent_players → invite. All inserts are
       // blocking on error: surfacing failures here was the lesson from the
       // Phase 4 silent-failure bug.
-       let householdInviteUrl = '';
-       let insertedPlayers = [];
        let householdId = null;
 
        // 1. Households row (primary_parent_id = newly signed-up user)
