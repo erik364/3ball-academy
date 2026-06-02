@@ -204,9 +204,35 @@ serve(async (req) => {
       );
     }
 
+    // Reminder-only: exclude players who have already responded (yes OR no)
+    // for this tournament. A player with NO tournament_rsvps row is "pending".
+    // First click sends to everyone (nobody's responded); later clicks become
+    // a reminder to stragglers only.
+    const { data: respondedRows, error: rsvpErr } = await sb
+      .from("tournament_rsvps")
+      .select("player_id")
+      .eq("tournament_id", tournament_id);
+    if (rsvpErr) {
+      console.error("tournament_rsvps lookup failed:", rsvpErr);
+      return new Response(
+        JSON.stringify({ error: "RSVP lookup failed", details: rsvpErr }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+    const respondedIds = new Set((respondedRows || []).map((r: any) => r.player_id));
+    const pendingPlayers = players.filter((p: any) => !respondedIds.has(p.id));
+
+    if (pendingPlayers.length === 0) {
+      return new Response(
+        JSON.stringify({ ok: true, sent: 0, total: players.length, note: "Everyone has already responded." }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     // Phase 3 fan-out via parent_players, falling back per-player to
-    // players.parent_id if no link rows exist.
-    const playerIdsAll = players.map((p: any) => p.id);
+    // players.parent_id if no link rows exist. From here down, "players"
+    // means the pending set only — responders are not contacted.
+    const playerIdsAll = pendingPlayers.map((p: any) => p.id);
     const { data: links, error: linkErr } = await sb
       .from("parent_players")
       .select("player_id, parent_id")
@@ -219,7 +245,7 @@ serve(async (req) => {
       if (!playerToParentIds.has(l.player_id)) playerToParentIds.set(l.player_id, []);
       playerToParentIds.get(l.player_id)!.push(l.parent_id);
     });
-    for (const p of players) {
+    for (const p of pendingPlayers) {
       if (!playerToParentIds.has(p.id) && p.parent_id) {
         console.warn(`parent_players empty for player ${p.id}; falling back to players.parent_id`);
         playerToParentIds.set(p.id, [p.parent_id]);
@@ -247,7 +273,7 @@ serve(async (req) => {
     let skipped = 0;
     const results: any[] = [];
 
-    for (const player of players) {
+    for (const player of pendingPlayers) {
       const linkedParentIds = playerToParentIds.get(player.id) || [];
       if (linkedParentIds.length === 0) { skipped++; continue; }
       for (const pid of linkedParentIds) {
@@ -302,7 +328,7 @@ serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({ ok: true, sent, skipped, total: players.length, results }),
+      JSON.stringify({ ok: true, sent, skipped, total: players.length, pending: pendingPlayers.length, results }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (err) {

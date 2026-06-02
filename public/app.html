@@ -4369,8 +4369,9 @@ async function sendTournamentAvailability(tournamentId) {
     return;
   }
 
-  const teamList = t.teams.join(', ');
-  if (!confirm(`Send availability request for "${t.name}" to all parents of players on: ${teamList}?`)) return;
+  // First click = everyone (nobody's responded); later clicks become a
+  // reminder to the stragglers. The function decides who to email.
+  if (!confirm(`Send availability request for "${t.name}" to parents of players who haven't responded yet?`)) return;
 
   try {
     const { data, error } = await sb.functions.invoke('send-tournament-availability-request', {
@@ -4381,7 +4382,12 @@ async function sendTournamentAvailability(tournamentId) {
       alert('Failed to send. Check console for details.');
       return;
     }
-    alert(`Sent. ${data?.sent ?? 0} emails delivered to parents.`);
+    const sent = (data && data.sent) || 0;
+    if (sent === 0 && data && data.note) {
+      alert(data.note);
+    } else {
+      alert(`Sent. ${sent} reminder email${sent === 1 ? '' : 's'} delivered.`);
+    }
   } catch (e) {
     console.error('Availability request threw:', e);
     alert('Error sending. Check console.');
