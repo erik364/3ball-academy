@@ -114,6 +114,12 @@ verify_jwt = true
 import_map = "./functions/send-join-request-notification/deno.json"
 entrypoint = "./functions/send-join-request-notification/index.ts"
 
+[functions.send-tournament-rsvp-confirmation]
+enabled = true
+verify_jwt = true
+import_map = "./functions/send-tournament-rsvp-confirmation/deno.json"
+entrypoint = "./functions/send-tournament-rsvp-confirmation/index.ts"
+
 [functions.send-game-added]
 enabled = true
 verify_jwt = true
