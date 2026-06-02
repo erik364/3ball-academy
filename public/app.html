@@ -2666,10 +2666,13 @@ async function loadPracticeCheckins() {
   } catch (e) { console.error('loadPracticeCheckins threw:', e); }
 }
 
-// Convenience wrapper: load practices/tournaments + their child rows in the right order
+// Convenience wrapper: load practices/tournaments + their child rows in the right order.
+// allSettled at each tier so one failed loader (e.g. a stale schema cache or
+// transient 4xx) doesn't make loadSchedule reject, which would in turn poison
+// the critical boot Promise.allSettled .then() callback.
 async function loadSchedule() {
-  await Promise.all([loadPractices(), loadTournaments(), loadTournamentTeams(), loadTournamentGames()]);
-  await Promise.all([loadTournamentRsvps(), loadTournamentGameRsvps(), loadPracticeCheckins()]);
+  await Promise.allSettled([loadPractices(), loadTournaments(), loadTournamentTeams(), loadTournamentGames()]);
+  await Promise.allSettled([loadTournamentRsvps(), loadTournamentGameRsvps(), loadPracticeCheckins()]);
 }
 function resolveSupabaseUser(user) {
   var email = (user.email || '').toLowerCase();
@@ -2722,7 +2725,10 @@ function doLogin() {
       err.textContent = 'Invalid email or password.';
       return;
     }
-   Promise.all([loadCoaches(), loadParents(), loadPlayers(), loadPlayerNotes(), loadSchedule(), loadSettings(), loadGroups()]).then(async function() {
+   // allSettled, not all: a transient failure in any one loader must NOT
+   // block sign-in. Each loader has its own internal try/catch and sets a
+   // safe empty default on failure, so the .then below can run unconditionally.
+   Promise.allSettled([loadCoaches(), loadParents(), loadPlayers(), loadPlayerNotes(), loadSchedule(), loadSettings(), loadGroups()]).then(async function() {
       var resolved = resolveSupabaseUser(result.data.user);
       if (!resolved) {
         err.textContent = 'Account exists but no role is assigned. Contact your admin.';
@@ -2758,7 +2764,9 @@ function doLogin() {
         };
         // Parent-scoped loaders run AFTER state.currentParent is set —
         // their guards depend on it.
-        await Promise.all([loadParentInvites(), loadHousehold(), loadMyPlayerLinks(), loadHouseholdJoinRequests()]);
+        // allSettled so an optional loader (e.g. household_join_requests with
+        // a transient schema-cache miss) can't block enterApp().
+        await Promise.allSettled([loadParentInvites(), loadHousehold(), loadMyPlayerLinks(), loadHouseholdJoinRequests()]);
         enterApp('parent');
       }
     });
@@ -2772,7 +2780,12 @@ function enterApp(role) {
   document.getElementById('login-page').style.display = 'none';
   document.getElementById('app').style.display = 'block';
 
-Promise.all([loadLocations(), loadCoaches(), loadParents(), loadPlayers(), loadPlayerNotes(), loadSchedule(), loadSettings(), loadGroups()]).then(function() {
+// allSettled, not all: anonymous boot must succeed even if one loader 4xx's
+// (e.g. RLS quirk, empty settings row, transient schema-cache miss after a
+// recent migration). Each loader has its own try/catch and sets safe defaults
+// — letting one rejection abort the whole .then meant the login form could
+// never bind handlers and the registration waiver never populated.
+Promise.allSettled([loadLocations(), loadCoaches(), loadParents(), loadPlayers(), loadPlayerNotes(), loadSchedule(), loadSettings(), loadGroups()]).then(function() {
     populateAllGroupSelects();
     if (typeof renderLocations === 'function') renderLocations();
     if (typeof renderCoachManagement === 'function') renderCoachManagement();
@@ -2944,7 +2957,10 @@ function submitNewPassword() {
   sb.auth.getSession().then(function(result) {
     var session = result.data && result.data.session;
     if (!session || !session.user) return;
-    Promise.all([loadCoaches(), loadParents(), loadPlayers(), loadPlayerNotes(), loadSchedule(), loadSettings(), loadGroups()]).then(async function() {
+    // allSettled, not all: a transient failure in any one loader must NOT
+   // block sign-in. Each loader has its own internal try/catch and sets a
+   // safe empty default on failure, so the .then below can run unconditionally.
+   Promise.allSettled([loadCoaches(), loadParents(), loadPlayers(), loadPlayerNotes(), loadSchedule(), loadSettings(), loadGroups()]).then(async function() {
         var resolved = resolveSupabaseUser(session.user);
         if (!resolved) return;
         // Gate unapproved parents
@@ -2976,7 +2992,8 @@ function submitNewPassword() {
           };
           // Parent-scoped loaders run AFTER state.currentParent is set —
           // their guards depend on it.
-          await Promise.all([loadParentInvites(), loadHousehold(), loadMyPlayerLinks(), loadHouseholdJoinRequests()]);
+          // allSettled — see doLogin for rationale.
+          await Promise.allSettled([loadParentInvites(), loadHousehold(), loadMyPlayerLinks(), loadHouseholdJoinRequests()]);
           enterApp('parent');
         }
       });
@@ -6924,7 +6941,7 @@ async function resolveJoinRequest(requestId, approve, btnEl) {
     // pending requests, my-player-ids (gains the new household-mate's view of
     // players is unchanged for us as the primary, but the request list shrinks
     // and household members may grow).
-    await Promise.all([loadHouseholdJoinRequests(), loadHousehold(), loadPlayers(), loadMyPlayerLinks()]);
+    await Promise.allSettled([loadHouseholdJoinRequests(), loadHousehold(), loadPlayers(), loadMyPlayerLinks()]);
     renderParentAccount();
     toast(approve ? 'Approved.' : 'Denied.');
   } catch (e) {
