@@ -108,6 +108,12 @@ verify_jwt = true
 import_map = "./functions/send-roster-message/deno.json"
 entrypoint = "./functions/send-roster-message/index.ts"
 
+[functions.send-join-request-notification]
+enabled = true
+verify_jwt = true
+import_map = "./functions/send-join-request-notification/deno.json"
+entrypoint = "./functions/send-join-request-notification/index.ts"
+
 [functions.send-tournament-payment-confirmation]
 enabled = true
 verify_jwt = true
