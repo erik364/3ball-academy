@@ -4447,13 +4447,34 @@ function renderTournamentDetail() {
       rows.sort((a, b) => sortKey(a) - sortKey(b)
         || (a.player.last + a.player.first).localeCompare(b.player.last + b.player.first));
 
+      const isAdminViewer = !!(state.currentUser && state.currentUser.isAdmin);
       const playerRowsHtml = rows.length
         ? rows.map(r => {
             const pillClass = r.answer === 'yes' ? 'pill-green' : r.answer === 'no' ? 'pill-red' : 'pill-gray';
             const pillLabel = r.answer === 'yes' ? 'Yes' : r.answer === 'no' ? 'No' : 'Pending';
-            return `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--gray-border);">
-              <span style="font-size:13px;">${r.player.first} ${r.player.last}</span>
-              <span class="pill ${pillClass}">${pillLabel}</span>
+            // Admin-only Yes/No controls. The button matching the current
+            // answer is non-primary (de-emphasized) so the actionable choice
+            // pops. No Clear button — admins can only set 'yes' or 'no'.
+            let adminControls = '';
+            if (isAdminViewer) {
+              const yesPrimary = r.answer !== 'yes';
+              const noPrimary  = r.answer !== 'no';
+              adminControls = `
+                <span style="display:inline-flex;gap:4px;flex-shrink:0;">
+                  <button type="button"
+                    class="btn btn-sm${yesPrimary ? ' btn-primary' : ''}"
+                    style="padding:2px 8px;font-size:11px;line-height:1.2;"
+                    onclick="adminSetTournRsvp('${t.id}','${r.player.id}','yes')">Yes</button>
+                  <button type="button"
+                    class="btn btn-sm${noPrimary ? ' btn-primary' : ''}"
+                    style="padding:2px 8px;font-size:11px;line-height:1.2;"
+                    onclick="adminSetTournRsvp('${t.id}','${r.player.id}','no')">No</button>
+                </span>`;
+            }
+            return `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid var(--gray-border);">
+              <span style="font-size:13px;flex:1;min-width:0;">${r.player.first} ${r.player.last}</span>
+              <span class="pill ${pillClass}" style="flex-shrink:0;">${pillLabel}</span>
+              ${adminControls}
             </div>`;
           }).join('')
         : '<div style="font-size:12px;color:var(--text-secondary);font-style:italic;padding:6px 0;">No players on this team.</div>';
@@ -4677,8 +4698,9 @@ function renderTeamModalPlayers(selectedIds) {
     Object.keys(byTeam).filter(k => !TEAM_ORDER.includes(k))
   );
 
-  const isAdmin = !!(state.currentUser && state.currentUser.isAdmin);
-
+  // Team modal is READ-ONLY for RSVP: just a badge per eligible player.
+  // Yes/No controls live in the RSVP Responses section on the tournament
+  // detail page (renderTournamentDetail), not here.
   playerContainer.innerHTML = sortedKeys.map(team => {
     const players = byTeam[team].sort((a, b) =>
       (a.last + a.first).localeCompare(b.last + b.first)
@@ -4692,68 +4714,76 @@ function renderTeamModalPlayers(selectedIds) {
           const checked = selectedIds.includes(p.id);
           const eligible = eligiblePlayerIds.has(p.id);
           let badge = '';
-          let controls = '';
           if (eligible && tournamentId) {
             const ans = rsvpByPlayer.get(p.id) || null;
             const cls = ans === 'yes' ? 'pill-green' : ans === 'no' ? 'pill-red' : 'pill-gray';
             const label = ans === 'yes' ? 'Yes' : ans === 'no' ? 'No' : 'Pending';
             badge = `<span class="pill ${cls}" style="font-size:10px;flex-shrink:0;">${label}</span>`;
-            if (isAdmin) {
-              // stopPropagation + preventDefault on the buttons so clicking
-              // them doesn't toggle the surrounding checkbox label.
-              const btn = (val, text, primary) =>
-                `<button type="button"
-                   onclick="event.stopPropagation(); event.preventDefault(); adminSetTournRsvp('${tournamentId}','${p.id}',${val})"
-                   class="btn btn-sm${primary ? ' btn-primary' : ''}"
-                   style="padding:2px 6px;font-size:10px;line-height:1.2;">${text}</button>`;
-              controls = `
-                <span style="display:inline-flex;gap:3px;flex-shrink:0;" onclick="event.stopPropagation();">
-                  ${btn("'yes'", 'Yes', ans !== 'yes')}
-                  ${btn("'no'", 'No', ans !== 'no')}
-                  ${btn('null', 'Clear', false)}
-                </span>`;
-            }
           }
           return `<label style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:#fff;border-radius:4px;margin-bottom:3px;cursor:pointer;font-size:13px;">
             <input type="checkbox" value="${p.id}" ${checked ? 'checked' : ''}>
             <span style="flex:1;min-width:0;">${p.first} ${p.last}${p.grad ? ' · ' + p.grad : ''}</span>
             ${badge}
-            ${controls}
           </label>`;
         }).join('')}
       </div>`;
   }).join('');
 }
 
-// Admin-only: set a player's RSVP for a tournament. answer is 'yes'/'no' to
-// upsert, or null to clear (return to pending). Refreshes state and re-renders
-// the team modal in place, preserving the user's checkbox selections.
+// Admin-only: set a player's RSVP for a tournament to 'yes' or 'no'.
+// No Clear: admins can only set an explicit answer, not blank out an RSVP.
+// On a fresh transition TO 'yes' (i.e. prior state was null or 'no'), fire
+// send-tournament-rsvp-confirmation to email the player's linked parents.
+// Idempotent re-clicks on Yes don't re-fire the email; setting No fires
+// nothing. Refreshes the RSVP Responses section (which is where the buttons
+// live) so the badge + per-team counts + button "primary" state update in
+// place.
 async function adminSetTournRsvp(tournamentId, playerId, answer) {
   if (!sb) return;
   if (!state.currentUser || !state.currentUser.isAdmin) {
     toast('Admin only.');
     return;
   }
+  if (answer !== 'yes' && answer !== 'no') {
+    console.error('adminSetTournRsvp: invalid answer', answer);
+    return;
+  }
+  const prior = (state.tournamentRsvps || []).find(
+    r => r.tournamentId === tournamentId && r.playerId === playerId
+  );
+  const priorAnswer = prior ? prior.answer : null;
+
   try {
-    if (answer === null) {
-      const { error } = await sb.from('tournament_rsvps')
-        .delete()
-        .eq('tournament_id', tournamentId)
-        .eq('player_id', playerId);
-      if (error) { console.error('adminSetTournRsvp clear error:', error); toast('Could not clear RSVP: ' + (error.message || 'unknown')); return; }
-    } else {
-      const { error } = await sb.from('tournament_rsvps')
-        .upsert({
-          tournament_id: tournamentId,
-          player_id: playerId,
-          answer: answer,
-          updated_at: new Date().toISOString()
-        }, { onConflict: 'tournament_id,player_id' });
-      if (error) { console.error('adminSetTournRsvp upsert error:', error); toast('Could not set RSVP: ' + (error.message || 'unknown')); return; }
+    const { error } = await sb.from('tournament_rsvps')
+      .upsert({
+        tournament_id: tournamentId,
+        player_id: playerId,
+        answer: answer,
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'tournament_id,player_id' });
+    if (error) {
+      console.error('adminSetTournRsvp upsert error:', error);
+      toast('Could not set RSVP: ' + (error.message || 'unknown'));
+      return;
     }
     await loadTournamentRsvps();
-    // Preserve the user's in-progress checkbox selections during the re-render.
-    filterTeamModalPlayers();
+    if (typeof renderTournamentDetail === 'function' && state.viewingTournamentId === tournamentId) {
+      renderTournamentDetail();
+    }
+
+    // Fire confirmation email only on transition into 'yes'. Fire-and-forget
+    // so a Resend / Edge Function hiccup doesn't block the UI update.
+    if (answer === 'yes' && priorAnswer !== 'yes') {
+      try {
+        const { data: emailData, error: emailErr } = await sb.functions.invoke('send-tournament-rsvp-confirmation', {
+          body: { tournament_id: tournamentId, player_id: playerId }
+        });
+        if (emailErr) console.error('send-tournament-rsvp-confirmation failed:', emailErr);
+        else console.log('send-tournament-rsvp-confirmation result:', emailData);
+      } catch (e) {
+        console.error('send-tournament-rsvp-confirmation threw:', e);
+      }
+    }
   } catch (e) {
     console.error('adminSetTournRsvp threw:', e);
     toast('Could not update RSVP.');
