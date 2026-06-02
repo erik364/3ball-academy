@@ -3246,7 +3246,10 @@ async function regNext() {
           const ppRows = insertedPlayers.map(function(pl) {
             return { parent_id: newUserId, player_id: pl.id, is_primary: true, household_id: householdId };
           });
-          const { error: ppErr } = await sb.from('parent_players').insert(ppRows);
+          // Upsert so a retry against the existing parent_players_parent_id_player_id_key
+          // unique constraint is a no-op instead of a 409.
+          const { error: ppErr } = await sb.from('parent_players')
+            .upsert(ppRows, { onConflict: 'parent_id,player_id', ignoreDuplicates: true });
           if (ppErr) {
             console.error('parent_players insert error (step 4):', ppErr);
             alert('Account created but household linkage failed: ' + ppErr.message + '. Please contact support.');
@@ -3450,7 +3453,10 @@ async function finishRegistration(opts) {
       const ppRows = insertedPlayers.map(function(pl) {
         return { parent_id: ctx.newUserId, player_id: pl.id, is_primary: true, household_id: ctx.householdId };
       });
-      const { error: ppErr } = await sb.from('parent_players').insert(ppRows);
+      // Upsert so a retry against the existing parent_players_parent_id_player_id_key
+      // unique constraint is a no-op instead of a 409.
+      const { error: ppErr } = await sb.from('parent_players')
+        .upsert(ppRows, { onConflict: 'parent_id,player_id', ignoreDuplicates: true });
       if (ppErr) {
         console.error('parent_players insert error (finish):', ppErr);
         alert('Account created but household linkage failed: ' + ppErr.message + '. Please contact support.');
@@ -7110,7 +7116,10 @@ async function createChildAfterCheck(row, first, last, gradInt) {
         otherIds.forEach(otherId => {
           ppRows.push({ parent_id: otherId, player_id: newPlayerId, is_primary: false, household_id: householdId });
         });
-        const { error: ppErr } = await sb.from('parent_players').insert(ppRows);
+        // Upsert so a retry against the existing parent_players_parent_id_player_id_key
+        // unique constraint is a no-op instead of a 409.
+        const { error: ppErr } = await sb.from('parent_players')
+          .upsert(ppRows, { onConflict: 'parent_id,player_id', ignoreDuplicates: true });
         if (ppErr) {
           console.error('parent_players fan-out error:', ppErr);
           alert('Player added, but linkage to household members failed: ' + ppErr.message + '. Refresh and try again, or contact support.');
