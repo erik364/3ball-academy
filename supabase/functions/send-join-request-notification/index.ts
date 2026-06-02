@@ -8,11 +8,12 @@
 // approves access to their household as a whole, not to a specific
 // individual's identity; the in-app review is the consent surface.
 //
-// Auth: relies on platform-level verify_jwt = true in config.toml. The
-// function body uses the ADMIN_API_KEY to look up the primary's email and
-// (optionally) the matched player's first name for context. The caller's JWT
-// is not re-inspected because it was already validated by the platform and
-// the function performs no sensitive writes — just a templated email.
+// Auth: parent-triggered, so we re-derive the caller from the JWT and require
+// a matching pending household_join_requests row owned by them before sending
+// anything. The body's matched_player_id is IGNORED — we use the value from
+// the request row, so the kid-name lookup can only ever resolve a player in
+// the target household. The body's household_id is still used as the join
+// key for the lookup; if no pending row exists, we 403 and send nothing.
 //
 // @ts-ignore Deno runtime
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -22,6 +23,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const ADMIN_API_KEY = Deno.env.get("ADMIN_API_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
+const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY");
 const FROM_EMAIL = "3Ball Academy <noreply@3ballacademy.com>";
 const REPLY_TO = "wozzy20@aol.com";
 const APP_URL = "https://app.3ballacademy.com";
@@ -125,11 +127,31 @@ serve(async (req) => {
     });
   }
 
-  if (!RESEND_API_KEY || !ADMIN_API_KEY || !SUPABASE_URL) {
+  if (!RESEND_API_KEY || !ADMIN_API_KEY || !SUPABASE_URL || !SUPABASE_ANON_KEY) {
     return new Response(JSON.stringify({ error: "Server config missing" }), {
       status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
+
+  // Identify the caller from their JWT. Matches the pattern in update-coach-role
+  // / send-roster-message: build a client with the anon key + Authorization
+  // header, then auth.getUser() resolves the user id from the access token.
+  const authHeader = req.headers.get("Authorization") || "";
+  if (!authHeader.toLowerCase().startsWith("bearer ")) {
+    return new Response(JSON.stringify({ error: "Missing Authorization header" }), {
+      status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+  const userClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: { headers: { Authorization: authHeader } },
+  });
+  const { data: userRes, error: userErr } = await userClient.auth.getUser();
+  if (userErr || !userRes || !userRes.user) {
+    return new Response(JSON.stringify({ error: "Invalid or expired token" }), {
+      status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+  const callerId = userRes.user.id;
 
   let body: any;
   try {
@@ -141,7 +163,6 @@ serve(async (req) => {
   }
 
   const household_id: string | undefined = body.household_id;
-  const matched_player_id: string | null = body.matched_player_id || null;
   if (!household_id) {
     return new Response(JSON.stringify({ error: "Missing household_id" }), {
       status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -149,6 +170,32 @@ serve(async (req) => {
   }
 
   const sb = createClient(SUPABASE_URL, ADMIN_API_KEY);
+
+  // Verify a PENDING request actually exists from this caller to this household.
+  // Without this, any authenticated user could spam the primary of any
+  // household just by guessing a household_id. We also pull matched_player_id
+  // from the row (NOT from the body) so the kid-name lookup is bounded to
+  // exactly what request_household_join recorded server-side.
+  const { data: joinReq, error: reqErr } = await sb
+    .from("household_join_requests")
+    .select("id, matched_player_id")
+    .eq("requesting_parent_id", callerId)
+    .eq("household_id", household_id)
+    .eq("status", "pending")
+    .maybeSingle();
+  if (reqErr) {
+    console.error("join_request lookup failed:", reqErr);
+    return new Response(JSON.stringify({ error: "Join-request lookup failed" }), {
+      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+  if (!joinReq) {
+    // No pending request from this caller to this household — refuse to send.
+    return new Response(JSON.stringify({ error: "No pending request for caller and household" }), {
+      status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+  const matched_player_id: string | null = joinReq.matched_player_id || null;
 
   // Resolve the household primary's identity for the email.
   const { data: household, error: hErr } = await sb
