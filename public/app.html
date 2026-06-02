@@ -2005,7 +2005,12 @@ function showPage(id, navEl) {
   if (id === 'calendar') renderCalendar('coach-calendar-container', true);
   if (id === 'coach-calendar') renderCalendar('coach-only-calendar-container', 'coach-teams');
   if (id === 'player-tournaments') renderPlayerTournaments();
-  if (id === 'parent-account') renderParentAccount();
+  if (id === 'parent-account') {
+    renderParentAccount();
+    // Refresh pending join requests when the page is opened — otherwise a
+    // request that arrives after login won't show until the next reload.
+    loadHouseholdJoinRequests().then(renderJoinRequestsSection).catch(function() {});
+  }
 }
 
 function openModal(id) { document.getElementById(id).classList.add('open'); }
@@ -6851,17 +6856,28 @@ function renderJoinRequestsSection() {
   }
   panel.style.display = '';
   container.innerHTML = requests.map(function(r) {
-    let kidLabel = 'your household';
+    // matchedKidFirst names the kid whose registration triggered the match.
+    // It's context, not consent scope — approval grants access to ALL the
+    // household's players (resolve_household_join links the requester to every
+    // parent_players row in the household). The wording below makes that
+    // explicit so the primary isn't surprised.
+    let matchedKidFirst = '';
     if (r.matchedPlayerId) {
       const kid = state.players.find(function(p) { return p.id === r.matchedPlayerId; });
-      if (kid) kidLabel = (kid.first || '') + "'s account";
+      if (kid && kid.first) matchedKidFirst = kid.first;
     }
+    const contextLine = matchedKidFirst
+      ? `(They matched ${chEscape(matchedKidFirst)}'s registration.)`
+      : `(They matched a player in your household.)`;
     const submitted = r.createdAt
       ? new Date(r.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
       : '';
     return `<div style="padding:10px 0;border-bottom:1px solid var(--gray-border);">
       <div style="font-size:13px;line-height:1.5;color:var(--text);">
-        Someone is requesting to join your household to access ${chEscape(kidLabel)}.
+        Someone is requesting to join your household. Approving will let them see <strong>all players</strong> in your household.
+      </div>
+      <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;line-height:1.5;">
+        ${contextLine}
       </div>
       ${submitted ? `<div style="font-size:11px;color:var(--text-secondary);margin-top:4px;">Submitted ${chEscape(submitted)}</div>` : ''}
       <div style="display:flex;gap:6px;margin-top:8px;">
@@ -8045,7 +8061,10 @@ function switchPlayer(playerId) {
   else if (pageId === 'player-schedule') renderPlayerScheduleFilter(currentSchedFilter);
   else if (pageId === 'player-calendar') { renderCalendar('player-calendar-container', false); renderPlayerCalendarSubscribeButtons(); }
   else if (pageId === 'player-tournaments') renderPlayerTournaments();
-  else if (pageId === 'parent-account') renderParentAccount();
+  else if (pageId === 'parent-account') {
+    renderParentAccount();
+    loadHouseholdJoinRequests().then(renderJoinRequestsSection).catch(function() {});
+  }
   toast('Now viewing ' + p.first + "'s account");
 }
 
